@@ -1,6 +1,6 @@
 {
   "name": "@fookhsu/pi-scheduler",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Cron-driven scheduled prompt tasks, each run in an isolated agent session",
   "keywords": [
     "pi-package",
