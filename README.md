@@ -13,7 +13,8 @@ interactive Pi session.
 
 - One-time, interval, and cron schedules
 - One isolated Task Session per run, stored as its own session file
-- Agent adapter layer: Pi and Claude Code built in, new agents added without touching the core
+- Agent adapter layer: Pi, Claude Code, and Codex built in, new agents added without touching the core
+- Local read-only dashboard for observing tasks and run history
 - Project-local task and run storage under `.pi/scheduler/`
 - Idempotent `run-due` with a project run lock and per-run records
 - Crash recovery: stale runs are reclaimed on the next invocation
@@ -65,6 +66,7 @@ pi-scheduler list [--project <path>] [--json]
 pi-scheduler add --prompt <text> (--at <iso>|--every <duration>|--cron <expr>) [--agent <id>] [options]
 pi-scheduler enable <taskId> | disable <taskId> | remove <taskId>
 pi-scheduler prune --keep <n>
+pi-scheduler dashboard [--port <n>]
 ```
 
 `--agent` selects the agent adapter (see [Agents](#agents)); it sets the task's
@@ -72,6 +74,16 @@ agent on `add` and the fallback agent on `run-due` and `run`.
 
 Exit codes: `0` success (including "no due tasks" and "another instance holds
 the lock"), `1` at least one task failed, `2` configuration or storage error.
+
+## Dashboard
+
+`pi-scheduler dashboard` serves a read-only web view of the same store the CLI
+reads: every task with its next run, its latest outcome, per-task run history,
+and each run's summary, error, and session record. It binds to `127.0.0.1`
+only (default port 7383, `--port` to change), starts on demand, auto-refreshes
+every few seconds, and stops with Ctrl-C. Because it never writes, it takes no
+run lock and never interferes with cron's `run-due` — leave it open in a tab
+all day if you like.
 
 ## Pi commands
 

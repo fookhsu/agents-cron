@@ -17,6 +17,7 @@ const USAGE = [
   "  add --prompt <text> (--at <iso>|--every <duration>|--cron <expr>) [options]",
   "  enable <taskId> | disable <taskId> | remove <taskId>",
   "  prune --keep <n> [--project <path>]     Keep the newest n runs per task",
+  "  dashboard [--port <n>] [--project <path>]   Serve a local read-only dashboard",
   "",
   "Agents: --agent <id> selects the agent adapter — built in: pi, claude, codex (default: pi).",
 ].join("\n");
@@ -80,6 +81,8 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
       }
       case "prune":
         return await commandPrune(project, flags, out);
+      case "dashboard":
+        return await commandDashboard(project, flags, out, err);
       default:
         err(`Unknown command: ${command}`);
         err(USAGE);
@@ -165,6 +168,32 @@ async function commandPrune(
   if (!Number.isInteger(keep) || keep < 0) throw new Error("--keep must be a non-negative integer");
   out(`Pruned ${await pruneRuns(schedulerPaths(project).runsDir, keep)} run(s)`);
   return 0;
+}
+
+/**
+ * Serves the read-only dashboard until interrupted. The server is localhost
+ * only and mutates nothing, so it never touches the run lock.
+ */
+async function commandDashboard(
+  project: string,
+  flags: Map<string, string | boolean>,
+  out: (line: string) => void,
+  err: (line: string) => void,
+): Promise<number> {
+  const { startDashboard, DEFAULT_DASHBOARD_PORT } = await import("./dashboard/server.ts");
+  const port = Number(stringFlag(flags, "port") ?? DEFAULT_DASHBOARD_PORT);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new Error("--port must be an integer between 0 and 65535");
+  }
+
+  const handle = await startDashboard({ projectDir: project, port });
+  out(`pi-scheduler dashboard: ${handle.url}`);
+  out("Read-only view of tasks and runs. Press Ctrl-C to stop.");
+  process.on("SIGINT", () => {
+    err("");
+    process.exit(0);
+  });
+  return await new Promise<never>(() => undefined); // serve until interrupted
 }
 
 function scheduleFromFlags(flags: Map<string, string | boolean>): ScheduleInput {

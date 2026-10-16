@@ -25,7 +25,12 @@ pi-scheduler list [--json]
 pi-scheduler enable <taskId> | disable <taskId> | remove <taskId>
 pi-scheduler run <taskId>
 pi-scheduler prune --keep <n>
+pi-scheduler dashboard [--port <n>]
 ```
+
+The dashboard is a read-only local web view (`127.0.0.1:7383` by default) of
+tasks, run history, and per-run summaries, errors, and session records — the
+quickest way to see why a task did not run.
 
 If `pi-scheduler` is not on `PATH`, call the installed binary directly:
 `"$HOME/.pi/agent/npm/node_modules/.bin/pi-scheduler"` for a global install or
