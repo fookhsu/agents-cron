@@ -1,10 +1,9 @@
-import { spawn } from "node:child_process";
-import { accessSync, constants } from "node:fs";
 import { chmod, mkdir } from "node:fs/promises";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { sessionFileFor, schedulerPaths } from "../../paths.ts";
 import type { RunRecord, ScheduleTask } from "../../types.ts";
 import type { AgentAdapter, AgentRunRequest, AgentRunResult } from "../types.ts";
+import { captureOutput, formatScheduledPrompt, lastLines, resolveBinary, summarize } from "../run-utils.ts";
 import { TASK_SESSION_ENV } from "./env.ts";
 
 /** Names the `pi` executable the adapter spawns, for cron's minimal PATH. */
@@ -39,7 +38,12 @@ async function runInTaskSession({
   await mkdir(dirname(sessionFile), { recursive: true });
 
   const bin = resolvePiBinary();
-  const { code, stdout, stderr } = await spawnPi(bin, piArgs(task, run, sessionFile), cwd);
+  const { code, stdout, stderr } = await captureOutput(
+    bin,
+    piArgs(task, run, sessionFile),
+    cwd,
+    { ...process.env, [TASK_SESSION_ENV]: "1" },
+  );
   if (code !== 0) {
     throw new Error(`pi exited with ${code}${stderr.trim() ? `: ${lastLines(stderr)}` : ""}`);
   }
@@ -61,80 +65,11 @@ export function piArgs(task: ScheduleTask, run: RunRecord, sessionFile: string):
     ...(task.model ? ["--model", task.model] : []),
     ...(task.thinking ? ["--thinking", task.thinking] : []),
     ...(task.tools?.length ? ["--tools", task.tools.join(",")] : []),
-    formatPrompt(task, run),
+    formatScheduledPrompt(task, run),
   ];
 }
 
 /** Finds the `pi` executable: an explicit override first, then $PATH. */
 export function resolvePiBinary(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env[PI_BIN_ENV]?.trim();
-  if (override) return override;
-
-  const windows = process.platform === "win32";
-  const names = windows ? ["pi.cmd", "pi.exe", "pi"] : ["pi"];
-  const mode = windows ? constants.F_OK : constants.X_OK;
-
-  for (const dir of (env.PATH ?? "").split(delimiter)) {
-    if (!dir) continue;
-    for (const name of names) {
-      const candidate = join(dir, name);
-      try {
-        accessSync(candidate, mode);
-        return candidate;
-      } catch {
-        // Not in this directory; keep looking.
-      }
-    }
-  }
-
-  throw new Error(
-    `Could not find "pi" on PATH, which is expected under cron. Set ${PI_BIN_ENV} to the full path of the pi executable.`,
-  );
-}
-
-type PiProcessResult = { code: number | null; stdout: string; stderr: string };
-
-function spawnPi(bin: string, args: string[], cwd: string): Promise<PiProcessResult> {
-  return new Promise((settle, fail) => {
-    const child = spawn(bin, args, {
-      cwd,
-      env: { ...process.env, [TASK_SESSION_ENV]: "1" },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk: string) => {
-      stderr += chunk;
-    });
-    child.on("error", (error) => fail(new Error(`Could not run ${bin}: ${error.message}`)));
-    child.on("close", (code) => settle({ code, stdout, stderr }));
-  });
-}
-
-function formatPrompt(task: ScheduleTask, run: RunRecord): string {
-  return [
-    "[Scheduled task]",
-    `Task ID: ${task.id}`,
-    `Task name: ${task.name ?? "(unnamed)"}`,
-    `Run ID: ${run.runId}`,
-    "",
-    task.prompt,
-  ].join("\n");
-}
-
-/** `pi --print` writes the assistant's last message to stdout. */
-function summarize(stdout: string): string | undefined {
-  const text = stdout.trim();
-  if (!text) return undefined;
-  return text.length > 1_000 ? `${text.slice(0, 1_000)}…` : text;
-}
-
-function lastLines(text: string, count = 3): string {
-  return text.trim().split("\n").filter(Boolean).slice(-count).join(" / ");
+  return resolveBinary(env, PI_BIN_ENV, "pi", ["pi.cmd", "pi.exe", "pi"]);
 }

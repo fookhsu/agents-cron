@@ -22,9 +22,16 @@ test("rejects an unknown agent id with the registered agents listed", async () =
   assert.match((error as Error).message, /Unknown agent "does-not-exist"/);
 });
 
-test("built-in adapters load lazily and resolve to the Pi adapter", async () => {
+test("built-in adapters load lazily; pi stays the default agent", async () => {
   await import("../src/agents/builtin.ts");
 
   assert.ok(listAgents().some((agent) => agent.id === "pi"));
   assert.equal((await resolveAgent("pi")).displayName, "Pi");
+});
+
+test("the Claude Code adapter registers behind pi", async () => {
+  await import("../src/agents/builtin.ts");
+
+  assert.ok(listAgents().some((agent) => agent.id === "claude"));
+  assert.equal((await resolveAgent("claude")).displayName, "Claude Code");
 });

@@ -26,6 +26,7 @@
     "pi-scheduler": "./bin/pi-scheduler.mjs"
   },
   "files": [
+    "assets",
     "bin",
     "dist",
     "skills",

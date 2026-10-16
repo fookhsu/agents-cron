@@ -13,7 +13,7 @@ interactive Pi session.
 
 - One-time, interval, and cron schedules
 - One isolated Task Session per run, stored as its own session file
-- Agent adapter layer: Pi built in, new agents added without touching the core
+- Agent adapter layer: Pi and Claude Code built in, new agents added without touching the core
 - Project-local task and run storage under `.pi/scheduler/`
 - Idempotent `run-due` with a project run lock and per-run records
 - Crash recovery: stale runs are reclaimed on the next invocation
@@ -53,6 +53,8 @@ Running a task spawns the `pi` executable, and cron starts jobs with a minimal
 `PATH` that usually does not include it. Either set `PATH=` at the top of the
 crontab, or point `PI_SCHEDULER_PI_BIN` at `pi` — the command above does the
 latter. A missing `pi` is reported on the run record, not silently skipped.
+Tasks pinned to the Claude Code adapter spawn `claude` instead; the same
+minimal-`PATH` rule applies, with `PI_SCHEDULER_CLAUDE_BIN`.
 
 ## CLI
 
@@ -252,6 +254,24 @@ project-trust rules, so a scheduled run behaves like any other non-interactive
 Pi run. The only requirement is that `pi` be reachable: see
 [Configuration and overrides](#configuration-and-overrides) and
 `PI_SCHEDULER_PI_BIN`.
+
+### Claude Code
+
+The Claude Code adapter drives a Task Run by spawning
+`claude --print --output-format json` in the task's `cwd`, and records the JSON
+result — final message, Claude Code session id, usage — as the run's session
+record at `.pi/scheduler/sessions/<taskId>/<runId>.json`. Claude Code keeps its
+own transcript; `claude --resume <session_id>` reopens it.
+
+Two behavior differences from the Pi adapter:
+
+- A headless Claude Code run cannot approve permission prompts, so a tool the
+  task did not allow is denied, not asked. Set `tools` on tasks that need to
+  write or execute: the task's tool list maps to `--allowedTools`.
+- `thinking` has no Claude Code equivalent and is ignored.
+
+The `claude` binary is resolved like `pi`: `PI_SCHEDULER_CLAUDE_BIN` first,
+then `$PATH`. Pin it in the crontab the same way.
 
 Pi remains the management surface: `/schedule`, `/loop`, and `/remind` still
 manage the same store, and `schedule_task` gains an `agent` field to pin a task

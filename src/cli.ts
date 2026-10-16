@@ -18,7 +18,7 @@ const USAGE = [
   "  enable <taskId> | disable <taskId> | remove <taskId>",
   "  prune --keep <n> [--project <path>]     Keep the newest n runs per task",
   "",
-  "Agents: --agent <id> selects the agent adapter (default: the built-in agent).",
+  "Agents: --agent <id> selects the agent adapter — built in: pi, claude (default: pi).",
 ].join("\n");
 
 export type CliDeps = {

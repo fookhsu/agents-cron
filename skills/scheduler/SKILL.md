@@ -31,6 +31,15 @@ If `pi-scheduler` is not on `PATH`, call the installed binary directly:
 `"$HOME/.pi/agent/npm/node_modules/.bin/pi-scheduler"` for a global install or
 `.pi/npm/node_modules/.bin/pi-scheduler` for a project install.
 
+## Agents
+
+Tasks run through an agent adapter: `pi` (default) or `claude` (Claude Code,
+driven headless via `claude --print`). Pin one per task with `--agent` on `add`,
+`run`, and `run-due`, or the `agent` field in `tasks.json`. A Claude Code run
+needs the `claude` CLI on `PATH` (`PI_SCHEDULER_CLAUDE_BIN` under cron) and
+treats the task's `tools` list as an allowlist, because headless runs cannot
+approve permission prompts. `thinking` is ignored on Claude Code.
+
 ## Rules
 
 - Use `once` with an ISO timestamp, `interval` with a duration of at least 1
