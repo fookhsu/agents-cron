@@ -277,6 +277,29 @@ Pi remains the management surface: `/schedule`, `/loop`, and `/remind` still
 manage the same store, and `schedule_task` gains an `agent` field to pin a task
 to a specific adapter.
 
+### Codex
+
+The Codex adapter drives a Task Run by spawning
+`codex exec --json --skip-git-repo-check --output-last-message <tmp>` in the
+task's `cwd`, and records exit code, final message, and the JSONL event tail as
+the run's session record at `.pi/scheduler/sessions/<taskId>/<runId>.json`.
+Codex keeps its own transcript under `~/.codex/sessions/`.
+
+Two behavior differences from the other adapters:
+
+- A task without `tools` runs in a `read-only` sandbox; a task with any `tools`
+  runs `workspace-write`. Codex has no per-tool allowlist — `codex exec` fixes
+  its approval policy at "never", so the sandbox decides what a headless run
+  may touch, and it can never block on an approval prompt.
+- `thinking` has no Codex equivalent and is ignored.
+
+The `codex` binary is resolved like the others: `PI_SCHEDULER_CODEX_BIN` first,
+then `$PATH`. Pin it in the crontab the same way.
+
+Pi remains the management surface: `/schedule`, `/loop`, and `/remind` still
+manage the same store, and `schedule_task` gains an `agent` field to pin a task
+to a specific adapter.
+
 ## Storage and recovery
 
 ```text

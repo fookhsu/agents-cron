@@ -33,12 +33,16 @@ If `pi-scheduler` is not on `PATH`, call the installed binary directly:
 
 ## Agents
 
-Tasks run through an agent adapter: `pi` (default) or `claude` (Claude Code,
-driven headless via `claude --print`). Pin one per task with `--agent` on `add`,
+Tasks run through an agent adapter: `pi` (default), `claude` (Claude Code,
+driven headless via `claude --print`), or `codex` (driven headless via
+`codex exec`). Pin one per task with `--agent` on `add`,
 `run`, and `run-due`, or the `agent` field in `tasks.json`. A Claude Code run
 needs the `claude` CLI on `PATH` (`PI_SCHEDULER_CLAUDE_BIN` under cron) and
 treats the task's `tools` list as an allowlist, because headless runs cannot
-approve permission prompts. `thinking` is ignored on Claude Code.
+approve permission prompts. A Codex run needs the `codex` CLI on `PATH`
+(`PI_SCHEDULER_CODEX_BIN` under cron); its sandbox depends on the task's
+`tools`: none runs read-only, any runs workspace-write. `thinking` is ignored
+on both.
 
 ## Rules
 

@@ -15,3 +15,8 @@ registerAgent("claude", "Claude Code", async () => {
   const { createClaudeAdapter } = await import("./claude/adapter.ts");
   return createClaudeAdapter();
 });
+
+registerAgent("codex", "Codex", async () => {
+  const { createCodexAdapter } = await import("./codex/adapter.ts");
+  return createCodexAdapter();
+});

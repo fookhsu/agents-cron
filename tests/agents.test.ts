@@ -35,3 +35,14 @@ test("the Claude Code adapter registers behind pi", async () => {
   assert.ok(listAgents().some((agent) => agent.id === "claude"));
   assert.equal((await resolveAgent("claude")).displayName, "Claude Code");
 });
+
+test("the Codex adapter registers behind pi and claude", async () => {
+  await import("../src/agents/builtin.ts");
+
+  assert.ok(listAgents().some((agent) => agent.id === "codex"));
+  assert.equal((await resolveAgent("codex")).displayName, "Codex");
+  assert.deepEqual(
+    listAgents().map((agent) => agent.id).filter((id) => id === "pi" || id === "claude" || id === "codex"),
+    ["pi", "claude", "codex"],
+  );
+});
