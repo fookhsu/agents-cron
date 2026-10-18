@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,13 +48,11 @@ test("the packed tarball runs under a bare node", { timeout: 180_000 }, () => {
     );
     assert.equal(install.status, 0, `npm install failed:\n${install.stderr}`);
 
-    const bin = join(
-      appDir,
-      "node_modules",
-      "agents-cron",
-      "bin",
-      "agents-cron.mjs",
-    );
+    const pkg = join(appDir, "node_modules", "agents-cron");
+    for (const shipped of ["bin/agents-cron.mjs", "bin/ts-loader.mjs", "extension.mjs", "skills"])
+      assert.ok(existsSync(join(pkg, shipped)), `files list is missing ${shipped}`);
+
+    const bin = join(pkg, "bin", "agents-cron.mjs");
     const run = spawnSync(
       process.execPath,
       [bin, "list", "--project", appDir],
