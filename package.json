@@ -1,5 +1,5 @@
 {
-  "name": "agent-cron",
+  "name": "agents-cron",
   "version": "0.6.0",
   "description": "Cron-driven scheduled prompt tasks, each run in an isolated agent session",
   "keywords": [
@@ -15,15 +15,15 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/fookhsu/agent-cron.git"
+    "url": "git+https://github.com/fookhsu/agents-cron.git"
   },
-  "homepage": "https://github.com/fookhsu/agent-cron#readme",
+  "homepage": "https://github.com/fookhsu/agents-cron#readme",
   "bugs": {
-    "url": "https://github.com/fookhsu/agent-cron/issues"
+    "url": "https://github.com/fookhsu/agents-cron/issues"
   },
   "type": "module",
   "bin": {
-    "agent-cron": "./bin/agent-cron.mjs"
+    "agents-cron": "./bin/agents-cron.mjs"
   },
   "files": [
     "assets",

@@ -76,7 +76,7 @@ test("an explicit binary override wins over PATH", () => {
 });
 
 test("finds an executable named claude on PATH", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "agent-cron-bin-"));
+  const dir = await mkdtemp(join(tmpdir(), "agents-cron-bin-"));
   try {
     const bin = join(dir, "claude");
     await writeFile(bin, "#!/bin/sh\n");

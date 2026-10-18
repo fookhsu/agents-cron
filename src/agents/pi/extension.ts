@@ -6,7 +6,7 @@ import { LEGACY_TASK_SESSION_ENV, TASK_SESSION_ENV } from "./env.ts";
 
 /**
  * Management surface only. The extension never schedules, locks, polls, or
- * executes: cron invokes `agent-cron run-due`, and this only reads/writes the
+ * executes: cron invokes `agents-cron run-due`, and this only reads/writes the
  * store. Inside a Task Session it stays completely inert.
  */
 export default function (pi: ExtensionAPI): void {

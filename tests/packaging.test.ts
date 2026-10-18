@@ -29,7 +29,7 @@ test("the packed tarball runs under a bare node", { timeout: 180_000 }, () => {
     );
     assert.equal(pack.status, 0, `npm pack failed:\n${pack.stderr}`);
     const [entry] = JSON.parse(pack.stdout);
-    assert.match(entry.filename, /agent-cron-/);
+    assert.match(entry.filename, /agents-cron-/);
 
     writeFileSync(
       join(appDir, "package.json"),
@@ -51,9 +51,9 @@ test("the packed tarball runs under a bare node", { timeout: 180_000 }, () => {
     const bin = join(
       appDir,
       "node_modules",
-      "agent-cron",
+      "agents-cron",
       "bin",
-      "agent-cron.mjs",
+      "agents-cron.mjs",
     );
     const run = spawnSync(
       process.execPath,

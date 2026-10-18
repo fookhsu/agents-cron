@@ -33,7 +33,7 @@ function registryFor(agent: AgentAdapter): AgentRegistry {
 }
 
 async function project(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "agent-cron-proj-"));
+  return mkdtemp(join(tmpdir(), "agents-cron-proj-"));
 }
 
 function task(overrides: Partial<ScheduleTask> & Pick<ScheduleTask, "id" | "schedule">): ScheduleTask {

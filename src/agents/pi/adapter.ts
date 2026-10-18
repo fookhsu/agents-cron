@@ -7,7 +7,7 @@ import { captureOutput, formatScheduledPrompt, lastLines, resolveBinary, summari
 import { LEGACY_TASK_SESSION_ENV, TASK_SESSION_ENV } from "./env.ts";
 
 /** Names the `pi` executable the adapter spawns, for cron's minimal PATH. */
-export const PI_BIN_ENV = "AGENT_CRON_PI_BIN";
+export const PI_BIN_ENV = "AGENTS_CRON_PI_BIN";
 
 /**
  * Agent adapter for Pi: one fresh, isolated Pi session per Task Run, driven by

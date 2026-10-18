@@ -126,7 +126,7 @@ async function guard(ctx: CommandContext, run: () => Promise<void>): Promise<voi
 async function executeNow(ctx: CommandContext, id: string): Promise<void> {
   const outcome = await runTask(ctx.cwd, id, {});
   if (outcome.status === "skipped") {
-    ctx.ui.notify("Another agent-cron invocation is running; try again shortly.", "warning");
+    ctx.ui.notify("Another agents-cron invocation is running; try again shortly.", "warning");
     return;
   }
   ctx.ui.notify(`${outcome.status}: ${outcome.taskId} (${outcome.runId})`, outcome.status === "error" ? "error" : "info");

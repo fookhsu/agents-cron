@@ -61,7 +61,7 @@ export function resolveBinary(
   unixName: string,
   windowsNames: string[],
 ): string {
-  const legacyEnvVar = overrideEnvVar.replace(/^AGENT_CRON_/, "PI_SCHEDULER_");
+  const legacyEnvVar = overrideEnvVar.replace(/^AGENTS_CRON_/, "PI_SCHEDULER_");
   const override = (env[overrideEnvVar] ?? env[legacyEnvVar])?.trim();
   if (override) return override;
 

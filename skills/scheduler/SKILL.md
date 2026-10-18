@@ -8,7 +8,7 @@ description: Create and manage cron-driven prompt tasks for a project. Use when 
 A schedule task is a stored prompt plus a time rule. Tasks are project-scoped in
 `.pi/scheduler/tasks.json`; each run opens its own isolated Pi Task Session.
 Execution is owned by an external scheduler that invokes
-`agent-cron run-due`, so Pi never runs tasks in the background by itself.
+`agents-cron run-due`, so Pi never runs tasks in the background by itself.
 Mention the cron entry when the user expects unattended runs.
 
 ## Drive the store
@@ -20,21 +20,21 @@ In any other harness, shell out to the CLI, which reads and writes the same
 store with the same rules:
 
 ```bash
-agent-cron add --prompt "<text>" (--at <iso> | --every <duration> | --cron "<expr>") [options]
-agent-cron list [--json]
-agent-cron enable <taskId> | disable <taskId> | remove <taskId>
-agent-cron run <taskId>
-agent-cron prune --keep <n>
-agent-cron dashboard [--port <n>]
+agents-cron add --prompt "<text>" (--at <iso> | --every <duration> | --cron "<expr>") [options]
+agents-cron list [--json]
+agents-cron enable <taskId> | disable <taskId> | remove <taskId>
+agents-cron run <taskId>
+agents-cron prune --keep <n>
+agents-cron dashboard [--port <n>]
 ```
 
 The dashboard is a read-only local web view (`127.0.0.1:7383` by default) of
 tasks, run history, and per-run summaries, errors, and session records — the
 quickest way to see why a task did not run.
 
-If `agent-cron` is not on `PATH`, call the installed binary directly:
-`"$HOME/.pi/agent/npm/node_modules/.bin/agent-cron"` for a global install or
-`.pi/npm/node_modules/.bin/agent-cron` for a project install.
+If `agents-cron` is not on `PATH`, call the installed binary directly:
+`"$HOME/.pi/agent/npm/node_modules/.bin/agents-cron"` for a global install or
+`.pi/npm/node_modules/.bin/agents-cron` for a project install.
 
 ## Agents
 
@@ -42,10 +42,10 @@ Tasks run through an agent adapter: `pi` (default), `claude` (Claude Code,
 driven headless via `claude --print`), or `codex` (driven headless via
 `codex exec`). Pin one per task with `--agent` on `add`,
 `run`, and `run-due`, or the `agent` field in `tasks.json`. A Claude Code run
-needs the `claude` CLI on `PATH` (`AGENT_CRON_CLAUDE_BIN` under cron) and
+needs the `claude` CLI on `PATH` (`AGENTS_CRON_CLAUDE_BIN` under cron) and
 treats the task's `tools` list as an allowlist, because headless runs cannot
 approve permission prompts. A Codex run needs the `codex` CLI on `PATH`
-(`AGENT_CRON_CODEX_BIN` under cron); its sandbox depends on the task's
+(`AGENTS_CRON_CODEX_BIN` under cron); its sandbox depends on the task's
 `tools`: none runs read-only, any runs workspace-write. `thinking` is ignored
 on both.
 
@@ -63,5 +63,5 @@ on both.
   same request.
 - Explain the task ID and next run time after creating a task.
 - A Task Session is separate from this session and its results are never
-  injected here. Inspect them with the `runs` action or `agent-cron list`, and
+  injected here. Inspect them with the `runs` action or `agents-cron list`, and
   tell the user they can open one with `pi --session <path>`.
