@@ -26,7 +26,7 @@ test("missing task file loads as an empty list", async () => {
 
 test("saves and reloads versioned tasks atomically", async () => {
   const dir = await mkdtemp(join(tmpdir(), "agents-cron-"));
-  const path = join(dir, ".pi", "scheduler", "tasks.json");
+  const path = join(dir, ".agents", "cron", "tasks.json");
   await saveTasks(path, [task()]);
   assert.deepEqual(await loadTasks(path), [task()]);
   const raw = JSON.parse(await readFile(path, "utf8"));

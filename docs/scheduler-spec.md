@@ -22,7 +22,7 @@
 用户 Pi Session（管理面）
     │  /schedule、schedule_task 工具
     ▼
-.pi/scheduler/  store（tasks.json + runs/ + sessions/）
+.agents/cron/  store（tasks.json + runs/ + sessions/）
     ▲
     │  系统 Cron
     ▼
@@ -50,7 +50,7 @@ agents-cron run-due（执行面，单次幂等）
 ## 存储布局
 
 ```
-<project>/.pi/scheduler/              # .gitignore
+<project>/.agents/cron/              # .gitignore
 ├── tasks.json                        # 版本化 durable 任务定义（0600）
 ├── run.lock                          # 项目级运行锁（0600）
 ├── runs/<runId>.json                 # 每次运行的元数据（0600）

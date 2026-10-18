@@ -17,7 +17,7 @@ export const CODEX_BIN_ENV = "AGENTS_CRON_CODEX_BIN";
  * Like the Pi and Claude Code adapters, it drives the user's installed `codex`
  * CLI rather than an SDK, so credentials and model access stay between the
  * user and Codex. Codex keeps its own transcript; this adapter writes a JSON
- * record under `.pi/scheduler/sessions/<taskId>/<runId>.json`.
+ * record under `.agents/cron/sessions/<taskId>/<runId>.json`.
  */
 export function createCodexAdapter(): AgentAdapter {
   return {

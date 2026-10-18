@@ -21,7 +21,7 @@ prints the path so you can open it deliberately.
 
 **The store is the only shared state.** Pi is the management surface and the CLI
 is the execution surface, and they never call each other. They meet in
-`<project>/.pi/scheduler/`, which is why Pi and cron can be set up in either
+`<project>/.agents/cron/`, which is why Pi and cron can be set up in either
 order, and why a scheduled run still works with Pi closed. The dashboard is a
 third surface, and it only reads.
 
@@ -56,7 +56,7 @@ differ from the code you reviewed.
         │                             │
         ▼                             ▼
   ┌─────────────────────────────────────────────────────────────────────┐
-  │  <project>/.pi/scheduler/   the only state the two surfaces share  │
+  │  <project>/.agents/cron/     the only state the two surfaces share  │
   │  tasks.json   run.lock   runs/<runId>.json   sessions/<taskId>/…   │
   └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -70,7 +70,7 @@ differ from the code you reviewed.
 | Agent Registry (`src/agents/`) | agent id → adapter, loaded lazily | know how any agent actually runs |
 | Agent adapters (`src/agents/*/adapter.ts`) | spawning the agent binary, the session record, runtime concerns | read or write the scheduler store |
 | Pi surface (`src/agents/pi/`) | commands, the `schedule_task` tool, confirmations | schedule, lock, or execute anything |
-| Store (`.pi/scheduler/`) | tasks, runs, sessions, the lock | hold run state inside `tasks.json` |
+| Store (`.agents/cron/`) | tasks, runs, sessions, the lock | hold run state inside `tasks.json` |
 
 ### Interactions
 
@@ -96,7 +96,7 @@ trigger `manual` and leave its schedule untouched.
 - One isolated Task Session per run, stored as its own session file
 - Agent adapter layer: Pi, Claude Code, and Codex built in, new agents added without touching the core
 - Local read-only dashboard for observing tasks and run history
-- Project-local task and run storage under `.pi/scheduler/`
+- Project-local task and run storage under `.agents/cron/`
 - Idempotent `run-due` with a project run lock and per-run records
 - Crash recovery: stale runs are reclaimed on the next invocation
 - Per-task and per-project configuration overrides
@@ -119,9 +119,10 @@ to strip types for files under `node_modules` (see [Development](#development)).
 
 Previously published as `@fookhsu/pi-scheduler`. The rename is mechanical for
 existing setups: the old package forwards to this one, the `pi-scheduler` bin
-keeps working, pre-rename `PI_SCHEDULER_*` environment variables are still
-honored, and task storage stays at `.pi/scheduler/` — crontabs and existing
-projects keep running untouched.
+keeps working, and pre-rename `PI_SCHEDULER_*` environment variables are still
+honored. Since 0.7.0 the store lives at `.agents/cron/` (was `.pi/scheduler/`);
+the first run after upgrading copies it over automatically and leaves the old
+copy in place, so crontabs and existing projects keep running untouched.
 
 Restart Pi or run `/reload` after installing. Installed with `pi install -l`,
 the package is recorded in the project's `.pi/settings.json` instead of your
@@ -133,7 +134,7 @@ user settings.
 crontab. Add one line per project (or point `--project` at each project):
 
 ```cron
-*/5 * * * * cd /path/to/project && AGENTS_CRON_PI_BIN=/absolute/path/to/pi "$HOME/.pi/agent/npm/node_modules/.bin/agents-cron" run-due >> .pi/scheduler/cron.log 2>&1
+*/5 * * * * cd /path/to/project && AGENTS_CRON_PI_BIN=/absolute/path/to/pi "$HOME/.pi/agent/npm/node_modules/.bin/agents-cron" run-due >> .agents/cron/cron.log 2>&1
 ```
 
 Project installs put the binary at `.pi/npm/node_modules/.bin/agents-cron`
@@ -279,7 +280,7 @@ file in an editor with inherited global resources dimmed.
 ### Override one task
 
 Any task can override the agent, model, thinking level, working directory, and
-tool allowlist. In `.pi/scheduler/tasks.json`:
+tool allowlist. In `.agents/cron/tasks.json`:
 
 ```json
 {
@@ -364,7 +365,7 @@ Pi run. The only requirement is that `pi` be reachable: see
 The Claude Code adapter drives a Task Run by spawning
 `claude --print --output-format json` in the task's `cwd`, and records the JSON
 result — final message, Claude Code session id, usage — as the run's session
-record at `.pi/scheduler/sessions/<taskId>/<runId>.json`. Claude Code keeps its
+record at `.agents/cron/sessions/<taskId>/<runId>.json`. Claude Code keeps its
 own transcript; `claude --resume <session_id>` reopens it.
 
 Two behavior differences from the Pi adapter:
@@ -386,7 +387,7 @@ to a specific adapter.
 The Codex adapter drives a Task Run by spawning
 `codex exec --json --skip-git-repo-check --output-last-message <tmp>` in the
 task's `cwd`, and records exit code, final message, and the JSONL event tail as
-the run's session record at `.pi/scheduler/sessions/<taskId>/<runId>.json`.
+the run's session record at `.agents/cron/sessions/<taskId>/<runId>.json`.
 Codex keeps its own transcript under `~/.codex/sessions/`.
 
 Two behavior differences from the other adapters:
@@ -407,15 +408,16 @@ to a specific adapter.
 ## Storage and recovery
 
 ```text
-<project>/.pi/scheduler/
+<project>/.agents/cron/
 ├── tasks.json                        # versioned task definitions, 0600
 ├── run.lock                          # project-wide run lock, 0600
 ├── runs/<runId>.json                 # one record per run, 0600
 └── sessions/<taskId>/<runId>.jsonl   # the Task Session, forced to 0600
 ```
 
-The whole directory is gitignored. Every scheduler file, including Task Session
-JSONL files, is written with `0600` permissions.
+The whole directory should be gitignored — add `.agents/cron/` (other tools
+may commit their own `.agents/` entries such as `skills/`). Every scheduler
+file, including Task Session JSONL files, is written with `0600` permissions.
 
 - A task stores a prompt and a time rule, never a shell command.
 - Task definitions and run records are separate; run state is never inlined into

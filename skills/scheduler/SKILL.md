@@ -6,7 +6,7 @@ description: Create and manage cron-driven prompt tasks for a project. Use when 
 # Scheduled Tasks
 
 A schedule task is a stored prompt plus a time rule. Tasks are project-scoped in
-`.pi/scheduler/tasks.json`; each run opens its own isolated Pi Task Session.
+`.agents/cron/tasks.json`; each run opens its own isolated Pi Task Session.
 Execution is owned by an external scheduler that invokes
 `agents-cron run-due`, so Pi never runs tasks in the background by itself.
 Mention the cron entry when the user expects unattended runs.

@@ -17,7 +17,7 @@ export const CLAUDE_BIN_ENV = "AGENTS_CRON_CLAUDE_BIN";
  * an SDK, so credentials, model access, and permissions stay between the user
  * and Claude Code. Claude Code stores its session transcript itself; this
  * adapter writes the JSON result as the run's session record under
- * `.pi/scheduler/sessions/<taskId>/<runId>.json`.
+ * `.agents/cron/sessions/<taskId>/<runId>.json`.
  */
 export function createClaudeAdapter(): AgentAdapter {
   return {

@@ -63,7 +63,7 @@ test("omits overrides the task does not set, and ignores thinking", () => {
 test("the session record sits next to the pi sessions, as JSON", () => {
   const file = claudeSessionFile("/proj", "task_1", "run_1");
 
-  assert.equal(file, join("/proj", ".pi", "scheduler", "sessions", "task_1", "run_1.json"));
+  assert.equal(file, join("/proj", ".agents", "cron", "sessions", "task_1", "run_1.json"));
 });
 
 test("an explicit binary override wins over PATH", () => {
