@@ -9,6 +9,87 @@ cron entry invokes `pi-scheduler run-due`, which drives each due task through an
 run. The plugin never schedules itself and never injects task output into your
 interactive Pi session.
 
+## Design
+
+**Time is not ours.** The scheduler never wakes itself up: no timer, no daemon,
+no long-running process. An external scheduler (cron) decides when to look, and
+`run-due` answers one question — what is due *now*? — then exits.
+
+**One run, one session.** Every Task Run gets a fresh, isolated session file.
+Task output is never injected into your interactive session; `/schedule open`
+prints the path so you can open it deliberately.
+
+**The store is the only shared state.** Pi is the management surface and the CLI
+is the execution surface, and they never call each other. They meet in
+`<project>/.pi/scheduler/`, which is why Pi and cron can be set up in either
+order, and why a scheduled run still works with Pi closed. The dashboard is a
+third surface, and it only reads.
+
+**Deciding is not executing, and neither is agent-specific.** The core owns
+scheduling, storage, locking, and run records. An Agent Adapter owns exactly one
+runtime. Adding an agent means adding an adapter directory and one
+`registerAgent` line; the runner, store, CLI, and Pi surface stay untouched.
+
+**Borrow the runtime instead of rebuilding it.** A Task Session is a real
+headless run of the task's agent — `pi --print`, `claude --print`, or
+`codex exec` — so the model, credentials, and project-trust rules are the ones
+you already configured, not a second copy of an SDK that can drift.
+
+**Ship what you run.** The published package contains the TypeScript sources it
+executes. There is no build artifact that can go stale and no `dist/` that can
+differ from the code you reviewed.
+
+```text
+  management surface (a Pi session)   execution surface (cron)
+  ───────────────────────────────     ──────────────────────────────────
+  /loop  /remind  /schedule           pi-scheduler run-due
+  schedule_task tool                  │  acquires run.lock
+        │ task-service                ▼
+        │                             Task Runner
+        │                             due filter · nextRunAt · stale reclaim
+        │                             │  resolve (lazy)
+        │                             ▼
+        │                             Agent Registry → pi · claude · codex
+        │                             │  spawn one headless agent run
+        │                             ▼
+        │                             one isolated Task Session per run
+        │                             │
+        ▼                             ▼
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  <project>/.pi/scheduler/   the only state the two surfaces share  │
+  │  tasks.json   run.lock   runs/<runId>.json   sessions/<taskId>/…   │
+  └─────────────────────────────────────────────────────────────────────┘
+```
+
+### Boundaries
+
+| Component | Owns | Never does |
+| --- | --- | --- |
+| Task Runner (`src/runner.ts`) | due-ness, the run lock, run records, `nextRunAt` | schedule itself, import an agent SDK, know which agents exist |
+| CLI (`src/cli.ts`) | argv → task service / runner, exit codes | manage your crontab, run an agent inline |
+| Agent Registry (`src/agents/`) | agent id → adapter, loaded lazily | know how any agent actually runs |
+| Agent adapters (`src/agents/*/adapter.ts`) | spawning the agent binary, the session record, runtime concerns | read or write the scheduler store |
+| Pi surface (`src/agents/pi/`) | commands, the `schedule_task` tool, confirmations | schedule, lock, or execute anything |
+| Store (`.pi/scheduler/`) | tasks, runs, sessions, the lock | hold run state inside `tasks.json` |
+
+### Interactions
+
+**cron → execution.** Cron runs `pi-scheduler run-due`. The Task Runner takes the
+run lock, reclaims stale runs, filters tasks by `isDue`, and drives each one
+through its adapter, which spawns one headless agent process. Each attempt
+writes its own run record and advances `nextRunAt`. The lock covers the whole
+pass, so a second invocation exits `0` reporting that another instance holds the
+lock instead of queueing.
+
+**Pi → management.** `/loop`, `/remind`, `/schedule …`, and the `schedule_task`
+tool go through the task service into `tasks.json`. The extension is
+deliberately inert inside a Task Session (see `PI_SCHEDULER_TASK_SESSION`), so a
+scheduled run cannot schedule more work — no accidental fan-out.
+
+**Pi ↔ store ↔ CLI.** The two surfaces only ever meet in the store.
+`/schedule run <id>` and `pi-scheduler run <id>` both execute the same task with
+trigger `manual` and leave its schedule untouched.
+
 ## Features
 
 - One-time, interval, and cron schedules
@@ -31,8 +112,10 @@ pi install npm:@fookhsu/pi-scheduler
 pi install .
 ```
 
-Requires Node `>=22.19.0`: the package ships TypeScript, and the CLI runs it
-through Node's built-in type stripping, so there is no build step.
+Requires Node `>=22.19.0`. The package ships TypeScript and runs it as-is — no
+build step, no `dist/`. Pi loads the extension through its own TypeScript
+loader; the CLI registers a small loader hook of its own, because Node refuses
+to strip types for files under `node_modules` (see [Development](#development)).
 
 Restart Pi or run `/reload` after installing. Installed with `pi install -l`,
 the package is recorded in the project's `.pi/settings.json` instead of your
@@ -341,19 +424,36 @@ JSONL files, is written with `0600` permissions.
 
 ```bash
 npm install
-npm run check    # typecheck + build + tests
+npm run check    # typecheck + tests (includes a packed-tarball smoke test)
 ```
 
-`npm run build` compiles `src/` to `dist/` with `tsc -p tsconfig.build.json`.
-`bin/pi-scheduler.mjs` and the `pi` manifest both point at `dist/`, because Node
-refuses to strip types for files under `node_modules` — a published package
-cannot run its own `.ts` sources.
+There is no build. `npm run typecheck` runs `tsc --noEmit`, and `npm test` runs
+the suite with Node's own test runner against the same `.ts` sources the
+package ships.
+
+Two loaders run those sources, which is the whole packaging story:
+
+- **Extension** — `pi` compiles the extension itself through jiti, so
+  `pi.extensions` points straight at `src/agents/pi/extension.ts`.
+- **CLI** — cron starts `bin/pi-scheduler.mjs` with a bare `node`, and Node
+  explicitly refuses to strip types for files under `node_modules`, which is
+  where an installed package lives. The entry registers `bin/ts-loader.mjs`, a
+  hook scoped to this package's own `.ts` files and nothing else.
+
+Stripping is a whitespace-preserving strip, so the sources must stay erasable
+(no enums, no parameter properties). `erasableSyntaxOnly` in `tsconfig.json`
+enforces that at typecheck time, which is what keeps the missing build step
+from becoming a runtime surprise.
+
+`tests/packaging.test.ts` packs the tarball, installs it into a temp
+directory, and runs the installed CLI with a bare `node` — the one test that
+exercises the `node_modules` path the loader exists for.
 
 `src/agents/` is the agent adapter layer: `types.ts` is the adapter contract,
-`registry.ts` resolves adapters, `builtin.ts` wires the built-ins, and
-`pi/` holds everything Pi-specific (adapter, extension, tools, commands), and
-nothing under `pi/` is imported by the CLI path except the adapter, which spawns
-`pi --print` rather than linking the SDK.
+`registry.ts` resolves adapters, `builtin.ts` wires the built-ins, and each
+agent (`pi/`, `claude/`, `codex/`) holds everything agent-specific; nothing
+under `src/agents/pi/` except its adapter is imported by the CLI path, and the
+adapters spawn the agent binary rather than linking an SDK.
 Everything else in `src/` is agent-agnostic: the Task Runner, stores, locking,
 and CLI.
 
@@ -363,13 +463,13 @@ The package follows the [Pi package](https://pi.dev/docs/latest/packages)
 conventions: the `pi-package` keyword and a `pi` manifest in `package.json`.
 
 ```bash
-npm run check        # typecheck + build + tests
+npm run check        # typecheck + tests
 npm pack --dry-run   # inspect the published file list
 npm publish          # prepublishOnly re-runs check
 ```
 
-`files` ships `bin/`, `dist/`, `skills/`, and `src/`. The `dist/` build is what
-makes a published install runnable, and `src/` ships alongside it so the source
-maps resolve. `@earendil-works/pi-coding-agent` stays an optional peer: only the
-extension imports it, and Pi hands its own copy to extensions, so an install of
-the scheduler never needs a second SDK.
+`files` ships `assets/`, `bin/` (entry points and the TS loader), `src/` (the
+sources that actually run), and `skills/`. Nothing is compiled, so what
+`npm pack` lists is what executes on install. `@earendil-works/pi-coding-agent`
+stays an optional peer: only the extension imports it, and Pi hands its own
+copy to extensions, so an install of the scheduler never needs a second SDK.

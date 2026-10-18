@@ -130,11 +130,11 @@ export function parseCodexResult(
 
 /** A failed run whose diagnostic payload is still worth keeping in the run record. */
 export class CodexRunError extends Error {
-  constructor(
-    message: string,
-    readonly result: Record<string, unknown>,
-  ) {
+  readonly result: Record<string, unknown>;
+
+  constructor(message: string, result: Record<string, unknown>) {
     super(message);
+    this.result = result;
   }
 }
 

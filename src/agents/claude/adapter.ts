@@ -107,11 +107,11 @@ export function parseClaudeResult(stdout: string, code: number | null, stderr: s
 
 /** A failed run whose JSON result is still worth keeping in the run record. */
 export class ClaudeRunError extends Error {
-  constructor(
-    message: string,
-    readonly result: Record<string, unknown>,
-  ) {
+  readonly result: Record<string, unknown>;
+
+  constructor(message: string, result: Record<string, unknown>) {
     super(message);
+    this.result = result;
   }
 }
 
