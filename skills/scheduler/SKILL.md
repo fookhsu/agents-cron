@@ -1,6 +1,7 @@
 ---
 name: scheduler
 description: Create and manage cron-driven prompt tasks for a project. Use when the user wants something to run later or on a recurring schedule, or to inspect why a scheduled task did not run.
+license: MIT
 ---
 
 # Scheduled Tasks
@@ -10,6 +11,12 @@ A schedule task is a stored prompt plus a time rule. Tasks are project-scoped in
 Execution is owned by an external scheduler that invokes
 `agents-cron run-due`, so Pi never runs tasks in the background by itself.
 Mention the cron entry when the user expects unattended runs.
+
+## Install
+
+The CLI is the npm package `agents-cron` and needs Node `>= 22.19`:
+`npm install -g agents-cron`. In Pi, install the whole package instead —
+extension, tool, and this skill — with `pi install npm:agents-cron`.
 
 ## Drive the store
 

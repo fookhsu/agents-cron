@@ -4,3 +4,4 @@ node_modules/
 *.tgz
 # working notes that never ship
 HANDOFF*.md
+*.zip
