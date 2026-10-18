@@ -18,6 +18,8 @@ export type ScheduleTask = {
   thinking?: string;
   cwd?: string;
   tools?: string[];
+  /** When this task's runs produce notifications; overrides the project default. */
+  notify?: "always" | "error" | "never";
   createdAt: string;
   updatedAt: string;
 };

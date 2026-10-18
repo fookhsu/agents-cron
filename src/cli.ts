@@ -1,6 +1,9 @@
-import { resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import "./agents/builtin.ts";
 import type { AgentRegistry } from "./agents/registry.ts";
+import { loadNotifyConfig } from "./notify/config.ts";
+import { notifiersFor } from "./notify/dispatch.ts";
+import type { RunNotification } from "./notify/types.ts";
 import { schedulerPaths } from "./paths.ts";
 import { listRuns, pruneRuns } from "./runs.ts";
 import { runDue, runTask, TaskNotFoundError } from "./runner.ts";
@@ -18,8 +21,10 @@ const USAGE = [
   "  enable <taskId> | disable <taskId> | remove <taskId>",
   "  prune --keep <n> [--project <path>]     Keep the newest n runs per task",
   "  dashboard [--port <n>] [--project <path>]   Serve a local read-only dashboard",
+  "  test-notify [--channel <id>] [--project <path>]   Send a test notification",
   "",
   "Agents: --agent <id> selects the agent adapter — built in: pi, claude, codex (default: pi).",
+  "add options: --name --agent --model --thinking --cwd --tools a,b --notify always|error|never",
 ].join("\n");
 
 export type CliDeps = {
@@ -83,6 +88,8 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
         return await commandPrune(project, flags, out);
       case "dashboard":
         return await commandDashboard(project, flags, out, err);
+      case "test-notify":
+        return await commandTestNotify(project, flags, out, err);
       default:
         err(`Unknown command: ${command}`);
         err(USAGE);
@@ -154,9 +161,69 @@ async function commandAdd(
       ?.split(",")
       .map((tool) => tool.trim())
       .filter(Boolean),
+    ...(notifyFlag(flags) ? { notify: notifyFlag(flags) } : {}),
   });
   out(`Created ${task.id}; next run ${task.nextRunAt ?? "never"}`);
   return 0;
+}
+
+function notifyFlag(flags: Map<string, string | boolean>): "always" | "error" | "never" | undefined {
+  const value = stringFlag(flags, "notify");
+  if (value === undefined) return undefined;
+  if (value === "always" || value === "error" || value === "never") return value;
+  throw new Error("--notify must be one of: always, error, never");
+}
+
+/** Sends a synthetic notification through every configured channel (or one). */
+async function commandTestNotify(
+  project: string,
+  flags: Map<string, string | boolean>,
+  out: (line: string) => void,
+  err: (line: string) => void,
+): Promise<number> {
+  const paths = schedulerPaths(project);
+  const config = await loadNotifyConfig(paths.dir);
+  if (config.channels.length === 0) {
+    err(`No notification channels configured in ${join(paths.dir, "config.json")}`);
+    err("See the Notifications section of the agents-cron README.");
+    return 2;
+  }
+
+  const only = stringFlag(flags, "channel");
+  const channels = only ? config.channels.filter((channel) => channel.id === only) : config.channels;
+  if (channels.length === 0) {
+    err(`No channel named ${JSON.stringify(only)} in ${join(paths.dir, "config.json")}`);
+    return 2;
+  }
+
+  const now = new Date().toISOString();
+  const notification: RunNotification = {
+    project: basename(project),
+    taskId: "task_test0000",
+    taskName: "test notification",
+    runId: "run_test0000",
+    trigger: "manual",
+    status: "success",
+    exitCode: 0,
+    summary: "This is a test notification from agents-cron. If you can read this, the channel works.",
+    startedAt: now,
+    finishedAt: now,
+  };
+
+  const failed: string[] = [];
+  await Promise.all(
+    notifiersFor({ on: config.on, channels }).map(async (notifier) => {
+      try {
+        await notifier.send(notification);
+        out(`✓ ${notifier.id}`);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        failed.push(notifier.id);
+        out(`✗ ${notifier.id}: ${reason}`);
+      }
+    }),
+  );
+  return failed.length > 0 ? 1 : 0;
 }
 
 async function commandPrune(

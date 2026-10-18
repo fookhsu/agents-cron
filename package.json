@@ -1,6 +1,6 @@
 {
   "name": "agents-cron",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Cron-driven scheduled prompt tasks, each run in an isolated agent session",
   "keywords": [
     "pi-package",
@@ -48,7 +48,8 @@
     "@earendil-works/pi-coding-agent": "^0.85.1",
     "@types/node": "^24.0.0",
     "typebox": "^1.3.30",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "@types/nodemailer": "^7.0.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
@@ -73,5 +74,8 @@
     "skills": [
       "./skills"
     ]
+  },
+  "optionalDependencies": {
+    "nodemailer": "^7.0.0"
   }
 }

@@ -14,6 +14,7 @@ export type NewTaskInput = {
   thinking?: string;
   cwd?: string;
   tools?: string[];
+  notify?: "always" | "error" | "never";
 };
 
 export async function listTasks(projectDir: string): Promise<ScheduleTask[]> {
@@ -43,6 +44,7 @@ export async function addTask(
     ...(input.thinking ? { thinking: input.thinking } : {}),
     ...(input.cwd ? { cwd: input.cwd } : {}),
     ...(input.tools?.length ? { tools: input.tools } : {}),
+    ...(input.notify ? { notify: input.notify } : {}),
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };

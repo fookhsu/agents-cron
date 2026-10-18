@@ -157,6 +157,7 @@ agents-cron add --prompt <text> (--at <iso>|--every <duration>|--cron <expr>) [-
 agents-cron enable <taskId> | disable <taskId> | remove <taskId>
 agents-cron prune --keep <n>
 agents-cron dashboard [--port <n>]
+agents-cron test-notify [--channel <id>]
 ```
 
 `--agent` selects the agent adapter (see [Agents](#agents)); it sets the task's
@@ -176,6 +177,42 @@ run lock and never interferes with cron's `run-due` — leave it open in a tab
 all day if you like.
 
 ![agents-cron dashboard showing four tasks across the pi, claude, and codex adapters, with a run history including one error and one in-flight run](assets/dashboard.png)
+
+## Notifications
+
+Runs can announce themselves. Channels live in `.agents/cron/config.json`
+(user-authored — `chmod 600` it, webhook tokens and SMTP hosts belong behind
+file permissions), and by default only **failed** runs notify:
+
+```json
+{
+  "version": 1,
+  "notifications": {
+    "on": "error",
+    "channels": [
+      { "id": "team", "type": "webhook", "url": "https://hooks.slack.com/services/…",
+        "headers": { "Authorization": "Bearer …" } },
+      { "id": "mail", "type": "email", "host": "smtp.example.com", "port": 465,
+        "user": "cron@example.com", "from": "cron@example.com", "to": "you@example.com" }
+    ]
+  }
+}
+```
+
+- `on` is the project default — `error` (default), `always`, or `never` — and a
+  task overrides it with `notify` (`agents-cron add --notify always …`).
+- **webhook** works with anything that accepts a POST: Slack, Lark, Discord,
+  n8n, a home-rolled endpoint. The default body is JSON
+  (`{source, project, task, run…}`); `format: "text"` posts the human summary.
+- **email** speaks plain SMTP (Gmail, QQ, 163, self-hosted). The password
+  comes from the environment, never the config file: `AGENTS_CRON_SMTP_PASSWORD`
+  by default, or the channel's `passwordEnv`. The optional `nodemailer`
+  dependency is loaded only when an email channel is configured.
+- Delivery is best effort with a 10s budget per channel: a broken webhook
+  prints one line to the cron log and never fails the run it reports on.
+- `agents-cron test-notify` sends a sample run through every configured
+  channel (or one, with `--channel <id>`) so the setup can be verified without
+  waiting for a real failure.
 
 ## Pi commands
 
@@ -412,6 +449,7 @@ to a specific adapter.
 ```text
 <project>/.agents/cron/
 ├── tasks.json                        # versioned task definitions, 0600
+├── config.json                       # optional notification channels (user-authored)
 ├── run.lock                          # project-wide run lock, 0600
 ├── runs/<runId>.json                 # one record per run, 0600
 └── sessions/<taskId>/<runId>.jsonl   # the Task Session, forced to 0600

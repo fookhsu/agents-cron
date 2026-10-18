@@ -33,11 +33,16 @@ agents-cron enable <taskId> | disable <taskId> | remove <taskId>
 agents-cron run <taskId>
 agents-cron prune --keep <n>
 agents-cron dashboard [--port <n>]
+agents-cron test-notify [--channel <id>]
 ```
 
 The dashboard is a read-only local web view (`127.0.0.1:7383` by default) of
 tasks, run history, and per-run summaries, errors, and session records — the
 quickest way to see why a task did not run.
+
+Runs can also push notifications through `.agents/cron/config.json` channels
+(webhook or SMTP email), error-only by default; verify a setup with
+`agents-cron test-notify` before relying on it.
 
 If `agents-cron` is not on `PATH`, call the installed binary directly:
 `"$HOME/.pi/agent/npm/node_modules/.bin/agents-cron"` for a global install or

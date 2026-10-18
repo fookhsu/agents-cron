@@ -1,5 +1,7 @@
 import { acquireLock } from "./lock.ts";
 import { agents as builtInAgents, type AgentRegistry } from "./agents/registry.ts";
+import { dispatchNotifications } from "./notify/dispatch.ts";
+import { loadNotifyConfig } from "./notify/config.ts";
 import { schedulerPaths, type SchedulerPaths } from "./paths.ts";
 import { createRunId, pruneRuns, reclaimStaleRuns, writeRun } from "./runs.ts";
 import { calculateNextRun, isDue } from "./scheduling.ts";
@@ -60,7 +62,7 @@ export async function runDue(options: RunnerOptions): Promise<RunDueResult> {
     const result: RunDueResult = { skipped: false, runs: [], failures: 0, missed: 0 };
     for (const task of due) {
       const outcome = isBeyondGrace(task, now, options.missedGraceMinutes ?? DEFAULT_MISSED_GRACE_MINUTES)
-        ? await markMissed(task, paths, now)
+        ? await markMissed(task, paths, now, options.projectDir)
         : await executeTask(task, paths, options, "scheduled", now);
       result.runs.push(outcome);
       if (outcome.status === "error") result.failures += 1;
@@ -136,7 +138,7 @@ async function executeTask(
     const adapter = await (options.agents ?? builtInAgents).resolve(task.agent ?? options.agent);
     agentId = adapter.id;
     const result = await adapter.run({ task, run, projectDir: options.projectDir });
-    await writeRun(paths.runsDir, {
+    const record: RunRecord = {
       ...run,
       agent: agentId,
       status: "success",
@@ -144,26 +146,30 @@ async function executeTask(
       exitCode: 0,
       sessionFile: result.sessionFile,
       summary: result.summary,
-    });
+    };
+    await writeRun(paths.runsDir, record);
+    await maybeNotify(paths, task, record, options.projectDir);
     if (advanceSchedule) advance(task, now);
     return { taskId: task.id, runId, status: "success" };
   } catch (error) {
-    await writeRun(paths.runsDir, {
+    const record: RunRecord = {
       ...run,
       ...(agentId ? { agent: agentId } : {}),
       status: "error",
       finishedAt: new Date().toISOString(),
       exitCode: 1,
       error: error instanceof Error ? error.message : String(error),
-    });
+    };
+    await writeRun(paths.runsDir, record);
+    await maybeNotify(paths, task, record, options.projectDir);
     if (advanceSchedule) advance(task, now);
     return { taskId: task.id, runId, status: "error" };
   }
 }
 
-async function markMissed(task: ScheduleTask, paths: SchedulerPaths, now: Date): Promise<RunOutcome> {
+async function markMissed(task: ScheduleTask, paths: SchedulerPaths, now: Date, projectDir: string): Promise<RunOutcome> {
   const runId = createRunId(now);
-  await writeRun(paths.runsDir, {
+  const record: RunRecord = {
     runId,
     taskId: task.id,
     trigger: "scheduled",
@@ -172,10 +178,32 @@ async function markMissed(task: ScheduleTask, paths: SchedulerPaths, now: Date):
     status: "missed",
     exitCode: 1,
     error: "Planned time passed before any run claimed this task",
-  });
+  };
+  await writeRun(paths.runsDir, record);
+  await maybeNotify(paths, task, record, projectDir);
   task.enabled = false;
   task.updatedAt = now.toISOString();
   return { taskId: task.id, runId, status: "missed" };
+}
+
+/**
+ * Offers the finished run to the configured notification channels. Everything
+ * here is best effort: config problems and delivery failures land on stderr
+ * so a cron pass never fails because of them.
+ */
+async function maybeNotify(
+  paths: SchedulerPaths,
+  task: ScheduleTask,
+  run: RunRecord,
+  projectDir: string,
+): Promise<void> {
+  try {
+    const config = await loadNotifyConfig(paths.dir);
+    await dispatchNotifications(config, task, run, projectDir);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[agents-cron] notification dispatch failed: ${reason}\n`);
+  }
 }
 
 /**

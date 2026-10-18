@@ -1,0 +1,72 @@
+import { basename } from "node:path";
+import type { RunRecord, ScheduleTask } from "../types.ts";
+import { emailNotifier } from "./email.ts";
+import { webhookNotifier } from "./webhook.ts";
+import type { Notifier, NotificationChannel, NotificationsConfig, NotifyLevel, RunNotification } from "./types.ts";
+
+/** Whether a run with this status warrants a notification at this level. */
+export function shouldNotify(level: NotifyLevel, status: RunRecord["status"]): boolean {
+  if (level === "never") return false;
+  if (level === "always") return status === "success" || status === "error" || status === "missed";
+  return status === "error" || status === "missed";
+}
+
+/** Resolves configured channels into notifiers, skipping unknown types. */
+export function notifiersFor(config: NotificationsConfig): Notifier[] {
+  const notifiers: Notifier[] = [];
+  for (const channel of config.channels) {
+    const notifier = notifierFor(channel);
+    if (notifier) notifiers.push(notifier);
+    else process.stderr.write(`[agents-cron] unknown notification channel type "${(channel as NotificationChannel).type}"; skipped\n`);
+  }
+  return notifiers;
+}
+
+function notifierFor(channel: NotificationChannel): Notifier | undefined {
+  if (channel.type === "webhook") return webhookNotifier(channel);
+  if (channel.type === "email") return emailNotifier(channel);
+  return undefined;
+}
+
+/**
+ * Offers one finished run to every configured channel, best effort: a level
+ * check first, then all channels in parallel, and every failure is reported on
+ * stderr instead of thrown — a broken webhook must never break the run itself.
+ */
+export async function dispatchNotifications(
+  config: NotificationsConfig,
+  task: ScheduleTask,
+  run: RunRecord,
+  projectDir: string,
+): Promise<void> {
+  const level = task.notify ?? config.on;
+  if (run.status === "running") return; // only terminal runs are announced
+  if (!shouldNotify(level, run.status)) return;
+
+  const notifiers = notifiersFor(config);
+  if (notifiers.length === 0) return;
+
+  const notification: RunNotification = {
+    project: basename(projectDir),
+    taskId: task.id,
+    ...(task.name ? { taskName: task.name } : {}),
+    runId: run.runId,
+    trigger: run.trigger,
+    status: run.status,
+    ...(run.exitCode !== undefined ? { exitCode: run.exitCode } : {}),
+    ...(run.agent ? { agent: run.agent } : {}),
+    ...(run.summary ? { summary: run.summary } : {}),
+    ...(run.error ? { error: run.error } : {}),
+    ...(run.sessionFile ? { sessionFile: run.sessionFile } : {}),
+    startedAt: run.startedAt,
+    ...(run.finishedAt ? { finishedAt: run.finishedAt } : {}),
+  };
+
+  const settled = await Promise.allSettled(notifiers.map((n) => n.send(notification)));
+  settled.forEach((result, i) => {
+    if (result.status === "rejected") {
+      const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      process.stderr.write(`[agents-cron] notify ${notifiers[i].id} failed: ${reason}\n`);
+    }
+  });
+}
