@@ -16,7 +16,7 @@ import {
 import type { RunRecord } from "../src/types.ts";
 
 async function runsDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "pi-scheduler-runs-"));
+  return mkdtemp(join(tmpdir(), "agent-cron-runs-"));
 }
 
 function run(overrides: Partial<RunRecord> & Pick<RunRecord, "runId" | "taskId">): RunRecord {

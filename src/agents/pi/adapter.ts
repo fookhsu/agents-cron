@@ -4,10 +4,10 @@ import { sessionFileFor, schedulerPaths } from "../../paths.ts";
 import type { RunRecord, ScheduleTask } from "../../types.ts";
 import type { AgentAdapter, AgentRunRequest, AgentRunResult } from "../types.ts";
 import { captureOutput, formatScheduledPrompt, lastLines, resolveBinary, summarize } from "../run-utils.ts";
-import { TASK_SESSION_ENV } from "./env.ts";
+import { LEGACY_TASK_SESSION_ENV, TASK_SESSION_ENV } from "./env.ts";
 
 /** Names the `pi` executable the adapter spawns, for cron's minimal PATH. */
-export const PI_BIN_ENV = "PI_SCHEDULER_PI_BIN";
+export const PI_BIN_ENV = "AGENT_CRON_PI_BIN";
 
 /**
  * Agent adapter for Pi: one fresh, isolated Pi session per Task Run, driven by
@@ -42,7 +42,7 @@ async function runInTaskSession({
     bin,
     piArgs(task, run, sessionFile),
     cwd,
-    { ...process.env, [TASK_SESSION_ENV]: "1" },
+    { ...process.env, [TASK_SESSION_ENV]: "1", [LEGACY_TASK_SESSION_ENV]: "1" },
   );
   if (code !== 0) {
     throw new Error(`pi exited with ${code}${stderr.trim() ? `: ${lastLines(stderr)}` : ""}`);

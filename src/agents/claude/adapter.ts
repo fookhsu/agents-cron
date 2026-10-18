@@ -6,7 +6,7 @@ import type { AgentAdapter, AgentRunRequest, AgentRunResult } from "../types.ts"
 import { captureOutput, formatScheduledPrompt, lastLines, resolveBinary, summarize } from "../run-utils.ts";
 
 /** Names the `claude` executable the adapter spawns, for cron's minimal PATH. */
-export const CLAUDE_BIN_ENV = "PI_SCHEDULER_CLAUDE_BIN";
+export const CLAUDE_BIN_ENV = "AGENT_CRON_CLAUDE_BIN";
 
 /**
  * Agent adapter for Claude Code: one fresh, headless `claude --print` run per

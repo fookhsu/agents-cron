@@ -68,10 +68,15 @@ test("the session record sits next to the pi sessions, as JSON", () => {
 
 test("an explicit binary override wins over PATH", () => {
   assert.equal(resolveClaudeBinary({ [CLAUDE_BIN_ENV]: "/opt/custom/claude", PATH: "" }), "/opt/custom/claude");
+  assert.equal(
+    resolveClaudeBinary({ PI_SCHEDULER_CLAUDE_BIN: "/opt/legacy/claude", PATH: "" }),
+    "/opt/legacy/claude",
+    "the pre-rename PI_SCHEDULER_* spelling is still honored",
+  );
 });
 
 test("finds an executable named claude on PATH", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "pi-scheduler-bin-"));
+  const dir = await mkdtemp(join(tmpdir(), "agent-cron-bin-"));
   try {
     const bin = join(dir, "claude");
     await writeFile(bin, "#!/bin/sh\n");

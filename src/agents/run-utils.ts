@@ -51,7 +51,9 @@ export function captureOutput(
 /**
  * Finds an agent executable: an explicit override env var first, then $PATH.
  * Cron starts jobs with a minimal PATH, so adapters must resolve their binary
- * themselves and name the override variable in the error.
+ * themselves and name the override variable in the error. The pre-rename
+ * `PI_SCHEDULER_*` spelling of the override is still honored, so crontabs
+ * written before the rename keep working.
  */
 export function resolveBinary(
   env: NodeJS.ProcessEnv,
@@ -59,7 +61,8 @@ export function resolveBinary(
   unixName: string,
   windowsNames: string[],
 ): string {
-  const override = env[overrideEnvVar]?.trim();
+  const legacyEnvVar = overrideEnvVar.replace(/^AGENT_CRON_/, "PI_SCHEDULER_");
+  const override = (env[overrideEnvVar] ?? env[legacyEnvVar])?.trim();
   if (override) return override;
 
   const windows = process.platform === "win32";

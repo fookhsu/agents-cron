@@ -7,7 +7,7 @@ import type { AgentAdapter, AgentRunRequest, AgentRunResult } from "../types.ts"
 import { captureOutput, formatScheduledPrompt, lastLines, resolveBinary, summarize } from "../run-utils.ts";
 
 /** Names the `codex` executable the adapter spawns, for cron's minimal PATH. */
-export const CODEX_BIN_ENV = "PI_SCHEDULER_CODEX_BIN";
+export const CODEX_BIN_ENV = "AGENT_CRON_CODEX_BIN";
 
 /**
  * Agent adapter for Codex: one fresh, headless `codex exec` run per Task Run,
@@ -37,7 +37,7 @@ async function runInTaskSession({
   await mkdir(dirname(sessionFile), { recursive: true });
 
   const bin = resolveCodexBinary();
-  const lastMessageFile = join(tmpdir(), `pi-scheduler-codex-${run.runId}.txt`);
+  const lastMessageFile = join(tmpdir(), `agent-cron-codex-${run.runId}.txt`);
   try {
     const { code, stdout, stderr } = await captureOutput(bin, codexArgs(task, run, lastMessageFile), cwd);
     const lastMessage = await readFile(lastMessageFile, "utf8").catch(() => "");

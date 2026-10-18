@@ -7,7 +7,7 @@ import { listTasks } from "../task-service.ts";
 import type { RunRecord, ScheduleTask } from "../types.ts";
 import { dashboardPage } from "./page.ts";
 
-/** The default port for `pi-scheduler dashboard`. 7383 = "sdh" on a keypad. */
+/** The default port for `agent-cron dashboard`. 7383 = "sdh" on a keypad. */
 export const DEFAULT_DASHBOARD_PORT = 7383;
 
 /** Session records are capped when served; larger transcripts are tailed. */
@@ -23,7 +23,7 @@ export type TaskOverview = ScheduleTask & { latestRun?: RunRecord };
 
 /**
  * A read-only, localhost-only dashboard over the project's scheduler store.
- * It starts on demand (`pi-scheduler dashboard`), serves JSON from the same
+ * It starts on demand (`agent-cron dashboard`), serves JSON from the same
  * files the CLI reads, and never mutates anything — so it needs no run lock
  * and coexists with cron's `run-due`.
  */

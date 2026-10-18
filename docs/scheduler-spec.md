@@ -1,6 +1,6 @@
-# pi-scheduler 后台任务 Runner 规格
+# agent-cron 后台任务 Runner 规格
 
-> 状态：已决策，待实现。决策依据见 [Wayfinder map #1](https://github.com/fookhsu/pi-scheduler/issues/1) 及其子 tickets。
+> 状态：已决策，待实现。决策依据见 [Wayfinder map #1](https://github.com/fookhsu/agent-cron/issues/1) 及其子 tickets。
 
 ## 目标
 
@@ -26,7 +26,7 @@
     ▲
     │  系统 Cron
     ▼
-pi-scheduler run-due（执行面，单次幂等）
+agent-cron run-due（执行面，单次幂等）
     └── Task Runner（Agent 无关）
             └── Agent Registry 按 task.agent 解析
                     └── Agent Adapter（内置 Pi；可扩展）
@@ -35,13 +35,13 @@ pi-scheduler run-due（执行面，单次幂等）
 
 ## CLI 契约
 
-单一二进制 `pi-scheduler`（`package.json.bin`）：
+单一二进制 `agent-cron`（`package.json.bin`）：
 
-- `pi-scheduler run-due [--project <path>] [--agent <id>]` — Cron 唯一入口，执行到期任务。
-- `pi-scheduler run <taskId> [--project <path>] [--agent <id>]` — 立即执行单任务。
-- `pi-scheduler list [--project <path>] [--json]` — 列出任务与最近运行。
-- `pi-scheduler add|enable|disable|remove ...` — 可选 shell 管理；`add --agent <id>` 指定适配器。
-- `pi-scheduler prune --keep <n>` — 清理运行记录。
+- `agent-cron run-due [--project <path>] [--agent <id>]` — Cron 唯一入口，执行到期任务。
+- `agent-cron run <taskId> [--project <path>] [--agent <id>]` — 立即执行单任务。
+- `agent-cron list [--project <path>] [--json]` — 列出任务与最近运行。
+- `agent-cron add|enable|disable|remove ...` — 可选 shell 管理；`add --agent <id>` 指定适配器。
+- `agent-cron prune --keep <n>` — 清理运行记录。
 
 退出码：`0` 成功（含无到期任务、锁被其他存活实例持有而跳过）；`1` 至少一个任务失败；`2` 配置/存储错误。
 

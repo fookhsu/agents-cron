@@ -20,12 +20,12 @@ function task(id = "task_test"): ScheduleTask {
 }
 
 test("missing task file loads as an empty list", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "pi-scheduler-"));
+  const dir = await mkdtemp(join(tmpdir(), "agent-cron-"));
   assert.deepEqual(await loadTasks(join(dir, "tasks.json")), []);
 });
 
 test("saves and reloads versioned tasks atomically", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "pi-scheduler-"));
+  const dir = await mkdtemp(join(tmpdir(), "agent-cron-"));
   const path = join(dir, ".pi", "scheduler", "tasks.json");
   await saveTasks(path, [task()]);
   assert.deepEqual(await loadTasks(path), [task()]);
@@ -35,7 +35,7 @@ test("saves and reloads versioned tasks atomically", async () => {
 });
 
 test("isolates malformed tasks while loading valid tasks", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "pi-scheduler-"));
+  const dir = await mkdtemp(join(tmpdir(), "agent-cron-"));
   const path = join(dir, "tasks.json");
   await saveTasks(path, [task()]);
   const raw = JSON.parse(await readFile(path, "utf8"));

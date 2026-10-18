@@ -61,10 +61,15 @@ test("omits overrides the task does not set, so pi keeps its own defaults", () =
 
 test("an explicit binary override wins over PATH", () => {
   assert.equal(resolvePiBinary({ [PI_BIN_ENV]: "/opt/custom/pi", PATH: "" }), "/opt/custom/pi");
+  assert.equal(
+    resolvePiBinary({ PI_SCHEDULER_PI_BIN: "/opt/legacy/pi", PATH: "" }),
+    "/opt/legacy/pi",
+    "the pre-rename PI_SCHEDULER_* spelling is still honored",
+  );
 });
 
 test("finds an executable named pi on PATH", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "pi-scheduler-bin-"));
+  const dir = await mkdtemp(join(tmpdir(), "agent-cron-bin-"));
   try {
     const bin = join(dir, "pi");
     await writeFile(bin, "#!/bin/sh\n");

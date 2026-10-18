@@ -68,10 +68,15 @@ test("the session record sits next to the pi sessions, as JSON", () => {
 
 test("an explicit binary override wins over PATH", () => {
   assert.equal(resolveCodexBinary({ [CODEX_BIN_ENV]: "/opt/custom/codex", PATH: "" }), "/opt/custom/codex");
+  assert.equal(
+    resolveCodexBinary({ PI_SCHEDULER_CODEX_BIN: "/opt/legacy/codex", PATH: "" }),
+    "/opt/legacy/codex",
+    "the pre-rename PI_SCHEDULER_* spelling is still honored",
+  );
 });
 
 test("finds an executable named codex on PATH", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "pi-scheduler-bin-"));
+  const dir = await mkdtemp(join(tmpdir(), "agent-cron-bin-"));
   try {
     const bin = join(dir, "codex");
     await writeFile(bin, "#!/bin/sh\n");

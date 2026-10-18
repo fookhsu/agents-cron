@@ -9,7 +9,7 @@ import { addTask, clearTasks, listTasks, removeTask, setTaskEnabled } from "./ta
 import type { RunRecord, ScheduleTask } from "./types.ts";
 
 const USAGE = [
-  "pi-scheduler <command> [options]",
+  "agent-cron <command> [options]",
   "",
   "  run-due [--project <path>] [--agent <id>]   Execute every due task (cron entry point)",
   "  run <taskId> [--project <path>] [--agent <id>]   Execute one task now",
@@ -106,7 +106,7 @@ async function commandRunDue(
     agent: stringFlag(flags, "agent"),
   });
   if (result.skipped) {
-    out("Another pi-scheduler instance owns the run lock; skipped.");
+    out("Another agent-cron instance owns the run lock; skipped.");
     return 0;
   }
   for (const run of result.runs) out(`${run.status}: ${run.taskId} (${run.runId})`);
@@ -187,7 +187,7 @@ async function commandDashboard(
   }
 
   const handle = await startDashboard({ projectDir: project, port });
-  out(`pi-scheduler dashboard: ${handle.url}`);
+  out(`agent-cron dashboard: ${handle.url}`);
   out("Read-only view of tasks and runs. Press Ctrl-C to stop.");
   process.on("SIGINT", () => {
     err("");

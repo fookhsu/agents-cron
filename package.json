@@ -1,6 +1,6 @@
 {
-  "name": "@fookhsu/pi-scheduler",
-  "version": "0.5.1",
+  "name": "agent-cron",
+  "version": "0.6.0",
   "description": "Cron-driven scheduled prompt tasks, each run in an isolated agent session",
   "keywords": [
     "pi-package",
@@ -15,15 +15,15 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/fookhsu/pi-scheduler.git"
+    "url": "git+https://github.com/fookhsu/agent-cron.git"
   },
-  "homepage": "https://github.com/fookhsu/pi-scheduler#readme",
+  "homepage": "https://github.com/fookhsu/agent-cron#readme",
   "bugs": {
-    "url": "https://github.com/fookhsu/pi-scheduler/issues"
+    "url": "https://github.com/fookhsu/agent-cron/issues"
   },
   "type": "module",
   "bin": {
-    "pi-scheduler": "./bin/pi-scheduler.mjs"
+    "agent-cron": "./bin/agent-cron.mjs"
   },
   "files": [
     "assets",
@@ -33,9 +33,6 @@
   ],
   "engines": {
     "node": ">=22.19.0"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "scripts": {
     "prepublishOnly": "npm run check",

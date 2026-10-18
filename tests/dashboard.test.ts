@@ -10,7 +10,7 @@ import { addTask } from "../src/task-service.ts";
 import type { RunRecord, ScheduleTask } from "../src/types.ts";
 
 async function seedProject(): Promise<{ dir: string; task: ScheduleTask; runs: RunRecord[] }> {
-  const dir = await mkdtemp(join(tmpdir(), "pi-scheduler-dash-"));
+  const dir = await mkdtemp(join(tmpdir(), "agent-cron-dash-"));
   const task = await addTask(dir, {
     prompt: "check the CI",
     schedule: { kind: "interval", every: "30m" },
@@ -79,8 +79,8 @@ test("the dashboard page is self-contained HTML", async () => {
     const html = await response.text();
 
     assert.match(response.headers.get("content-type") ?? "", /text\/html/);
-    assert.match(html, /<title>pi-scheduler dashboard<\/title>/);
-    assert.match(html, /pi-scheduler-dash-/);
+    assert.match(html, /<title>agent-cron dashboard<\/title>/);
+    assert.match(html, /agent-cron-dash-/);
   } finally {
     await handle.close();
     await rm(project.dir, { recursive: true, force: true });

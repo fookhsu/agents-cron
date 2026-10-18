@@ -10,7 +10,7 @@ export function dashboardPage(projectLabel: string): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>pi-scheduler dashboard</title>
+<title>agent-cron dashboard</title>
 <style>
   :root {
     --bg: #0f141a; --panel: #161d26; --panel2: #1c2530; --line: #26313e;
@@ -73,7 +73,7 @@ export function dashboardPage(projectLabel: string): string {
 </head>
 <body>
 <header>
-  <h1><span class="dot">◷</span> pi-scheduler</h1>
+  <h1><span class="dot">◷</span> agent-cron</h1>
   <span class="meta" id="project"></span>
   <span class="meta" id="stamp"></span>
 </header>

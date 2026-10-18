@@ -1,10 +1,10 @@
-# pi-scheduler
+# agent-cron
 
 Cron-driven scheduled prompt tasks for coding agents, with [Pi](https://pi.dev)
 as the built-in agent.
 
-Pi is the management surface; the `pi-scheduler` CLI is the execution surface. A
-cron entry invokes `pi-scheduler run-due`, which drives each due task through an
+Pi is the management surface; the `agent-cron` CLI is the execution surface. A
+cron entry invokes `agent-cron run-due`, which drives each due task through an
 **Agent Adapter** — the Pi adapter creates a fully isolated **Task Session** per
 run. The plugin never schedules itself and never injects task output into your
 interactive Pi session.
@@ -42,7 +42,7 @@ differ from the code you reviewed.
 ```text
   management surface (a Pi session)   execution surface (cron)
   ───────────────────────────────     ──────────────────────────────────
-  /loop  /remind  /schedule           pi-scheduler run-due
+  /loop  /remind  /schedule           agent-cron run-due
   schedule_task tool                  │  acquires run.lock
         │ task-service                ▼
         │                             Task Runner
@@ -74,7 +74,7 @@ differ from the code you reviewed.
 
 ### Interactions
 
-**cron → execution.** Cron runs `pi-scheduler run-due`. The Task Runner takes the
+**cron → execution.** Cron runs `agent-cron run-due`. The Task Runner takes the
 run lock, reclaims stale runs, filters tasks by `isDue`, and drives each one
 through its adapter, which spawns one headless agent process. Each attempt
 writes its own run record and advances `nextRunAt`. The lock covers the whole
@@ -83,11 +83,11 @@ lock instead of queueing.
 
 **Pi → management.** `/loop`, `/remind`, `/schedule …`, and the `schedule_task`
 tool go through the task service into `tasks.json`. The extension is
-deliberately inert inside a Task Session (see `PI_SCHEDULER_TASK_SESSION`), so a
+deliberately inert inside a Task Session (see `AGENT_CRON_TASK_SESSION`), so a
 scheduled run cannot schedule more work — no accidental fan-out.
 
 **Pi ↔ store ↔ CLI.** The two surfaces only ever meet in the store.
-`/schedule run <id>` and `pi-scheduler run <id>` both execute the same task with
+`/schedule run <id>` and `agent-cron run <id>` both execute the same task with
 trigger `manual` and leave its schedule untouched.
 
 ## Features
@@ -106,7 +106,7 @@ trigger `manual` and leave its schedule untouched.
 
 ```bash
 # From npm (recommended)
-pi install npm:@fookhsu/pi-scheduler
+pi install npm:agent-cron
 
 # Or from a checkout
 pi install .
@@ -116,6 +116,12 @@ Requires Node `>=22.19.0`. The package ships TypeScript and runs it as-is — no
 build step, no `dist/`. Pi loads the extension through its own TypeScript
 loader; the CLI registers a small loader hook of its own, because Node refuses
 to strip types for files under `node_modules` (see [Development](#development)).
+
+Previously published as `@fookhsu/pi-scheduler`. The rename is mechanical for
+existing setups: the old package forwards to this one, the `pi-scheduler` bin
+keeps working, pre-rename `PI_SCHEDULER_*` environment variables are still
+honored, and task storage stays at `.pi/scheduler/` — crontabs and existing
+projects keep running untouched.
 
 Restart Pi or run `/reload` after installing. Installed with `pi install -l`,
 the package is recorded in the project's `.pi/settings.json` instead of your
@@ -127,29 +133,29 @@ user settings.
 crontab. Add one line per project (or point `--project` at each project):
 
 ```cron
-*/5 * * * * cd /path/to/project && PI_SCHEDULER_PI_BIN=/absolute/path/to/pi "$HOME/.pi/agent/npm/node_modules/.bin/pi-scheduler" run-due >> .pi/scheduler/cron.log 2>&1
+*/5 * * * * cd /path/to/project && AGENT_CRON_PI_BIN=/absolute/path/to/pi "$HOME/.pi/agent/npm/node_modules/.bin/agent-cron" run-due >> .pi/scheduler/cron.log 2>&1
 ```
 
-Project installs put the binary at `.pi/npm/node_modules/.bin/pi-scheduler`
-instead. If you linked it onto your `PATH`, plain `pi-scheduler` works.
+Project installs put the binary at `.pi/npm/node_modules/.bin/agent-cron`
+instead. If you linked it onto your `PATH`, plain `agent-cron` works.
 
 Running a task spawns the `pi` executable, and cron starts jobs with a minimal
 `PATH` that usually does not include it. Either set `PATH=` at the top of the
-crontab, or point `PI_SCHEDULER_PI_BIN` at `pi` — the command above does the
+crontab, or point `AGENT_CRON_PI_BIN` at `pi` — the command above does the
 latter. A missing `pi` is reported on the run record, not silently skipped.
 Tasks pinned to the Claude Code adapter spawn `claude` instead; the same
-minimal-`PATH` rule applies, with `PI_SCHEDULER_CLAUDE_BIN`.
+minimal-`PATH` rule applies, with `AGENT_CRON_CLAUDE_BIN`.
 
 ## CLI
 
 ```text
-pi-scheduler run-due [--project <path>] [--agent <id>]     # cron entry point
-pi-scheduler run <taskId> [--project <path>] [--agent <id>]
-pi-scheduler list [--project <path>] [--json]
-pi-scheduler add --prompt <text> (--at <iso>|--every <duration>|--cron <expr>) [--agent <id>] [options]
-pi-scheduler enable <taskId> | disable <taskId> | remove <taskId>
-pi-scheduler prune --keep <n>
-pi-scheduler dashboard [--port <n>]
+agent-cron run-due [--project <path>] [--agent <id>]     # cron entry point
+agent-cron run <taskId> [--project <path>] [--agent <id>]
+agent-cron list [--project <path>] [--json]
+agent-cron add --prompt <text> (--at <iso>|--every <duration>|--cron <expr>) [--agent <id>] [options]
+agent-cron enable <taskId> | disable <taskId> | remove <taskId>
+agent-cron prune --keep <n>
+agent-cron dashboard [--port <n>]
 ```
 
 `--agent` selects the agent adapter (see [Agents](#agents)); it sets the task's
@@ -160,7 +166,7 @@ the lock"), `1` at least one task failed, `2` configuration or storage error.
 
 ## Dashboard
 
-`pi-scheduler dashboard` serves a read-only web view of the same store the CLI
+`agent-cron dashboard` serves a read-only web view of the same store the CLI
 reads: every task with its next run, its latest outcome, per-task run history,
 and each run's summary, error, and session record. It binds to `127.0.0.1`
 only (default port 7383, `--port` to change), starts on demand, auto-refreshes
@@ -216,6 +222,9 @@ Deleting and clearing tasks requires interactive confirmation; creating a task d
 
 ## Configuration and overrides
 
+Every `AGENT_CRON_*` variable below also answers to its pre-rename
+`PI_SCHEDULER_*` spelling; the new name wins when both are set.
+
 A Task Session is an ordinary Pi session: it runs in the task's `cwd` (the
 project root by default) and loads that project's settings, `AGENTS.md`, skills,
 and extensions. You can override what it uses at two levels.
@@ -255,7 +264,7 @@ scheduled tasks, using the package-filter object form:
 {
   "packages": [
     {
-      "source": "npm:@fookhsu/pi-scheduler",
+      "source": "npm:agent-cron",
       "extensions": [],
       "skills": []
     }
@@ -298,7 +307,7 @@ adapter by default).
 The same overrides are available on the CLI and the Agent tool:
 
 ```bash
-pi-scheduler add \
+agent-cron add \
   --prompt "检查 CI 并分析失败原因" \
   --cron "0 9 * * *" \
   --agent pi \
@@ -348,7 +357,7 @@ The spawned `pi` is also the runtime that owns the model, credentials, and
 project-trust rules, so a scheduled run behaves like any other non-interactive
 Pi run. The only requirement is that `pi` be reachable: see
 [Configuration and overrides](#configuration-and-overrides) and
-`PI_SCHEDULER_PI_BIN`.
+`AGENT_CRON_PI_BIN`.
 
 ### Claude Code
 
@@ -365,7 +374,7 @@ Two behavior differences from the Pi adapter:
   write or execute: the task's tool list maps to `--allowedTools`.
 - `thinking` has no Claude Code equivalent and is ignored.
 
-The `claude` binary is resolved like `pi`: `PI_SCHEDULER_CLAUDE_BIN` first,
+The `claude` binary is resolved like `pi`: `AGENT_CRON_CLAUDE_BIN` first,
 then `$PATH`. Pin it in the crontab the same way.
 
 Pi remains the management surface: `/schedule`, `/loop`, and `/remind` still
@@ -388,7 +397,7 @@ Two behavior differences from the other adapters:
   may touch, and it can never block on an approval prompt.
 - `thinking` has no Codex equivalent and is ignored.
 
-The `codex` binary is resolved like the others: `PI_SCHEDULER_CODEX_BIN` first,
+The `codex` binary is resolved like the others: `AGENT_CRON_CODEX_BIN` first,
 then `$PATH`. Pin it in the crontab the same way.
 
 Pi remains the management surface: `/schedule`, `/loop`, and `/remind` still
@@ -435,7 +444,7 @@ Two loaders run those sources, which is the whole packaging story:
 
 - **Extension** — `pi` compiles the extension itself through jiti, so
   `pi.extensions` points straight at `src/agents/pi/extension.ts`.
-- **CLI** — cron starts `bin/pi-scheduler.mjs` with a bare `node`, and Node
+- **CLI** — cron starts `bin/agent-cron.mjs` with a bare `node`, and Node
   explicitly refuses to strip types for files under `node_modules`, which is
   where an installed package lives. The entry registers `bin/ts-loader.mjs`, a
   hook scoped to this package's own `.ts` files and nothing else.

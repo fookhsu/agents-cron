@@ -34,7 +34,7 @@ function registryFor(agent: FakeAgent): AgentRegistry {
 }
 
 async function project(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "pi-scheduler-cli-"));
+  return mkdtemp(join(tmpdir(), "agent-cron-cli-"));
 }
 
 function capture(projectDir: string, agent: FakeAgent): { deps: CliDeps; stdout: string[]; stderr: string[] } {
