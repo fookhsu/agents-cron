@@ -175,6 +175,8 @@ every few seconds, and stops with Ctrl-C. Because it never writes, it takes no
 run lock and never interferes with cron's `run-due` — leave it open in a tab
 all day if you like.
 
+![agents-cron dashboard showing four tasks across the pi, claude, and codex adapters, with a run history including one error and one in-flight run](assets/dashboard.png)
+
 ## Pi commands
 
 ```text
