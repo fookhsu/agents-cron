@@ -4,4 +4,6 @@ node_modules/
 *.tgz
 # working notes that never ship
 HANDOFF*.md
+# legacy tsc output; the package ships TypeScript sources directly
+dist/
 *.zip
