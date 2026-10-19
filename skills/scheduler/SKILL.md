@@ -21,7 +21,10 @@ extension, tool, and this skill — with `pi install npm:agents-cron`.
 ## Drive the store
 
 In Pi, use the `schedule_task` tool or the `/loop`, `/remind`, and `/schedule`
-commands.
+commands. The tool is exposed with `deferred` exposure: it is not declared to
+the model up front, so find it with `tool_search` (for example
+`tool_search("schedule task")`) before the first call; the extension already
+keeps `tool_search` active for this.
 
 In any other harness, shell out to the CLI, which reads and writes the same
 store with the same rules:
@@ -73,6 +76,8 @@ on both.
 - Tasks contain prompts for Pi; they never contain arbitrary shell commands.
 - Do not create duplicate tasks when an existing task already represents the
   same request.
+- Ask the user to clarify any missing or ambiguous timing; never guess a
+  schedule.
 - Explain the task ID and next run time after creating a task.
 - A Task Session is separate from this session and its results are never
   injected here. Inspect them with the `runs` action or `agents-cron list`, and

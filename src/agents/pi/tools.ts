@@ -38,11 +38,16 @@ export function registerTools(pi: ExtensionAPI): void {
     name: "schedule_task",
     label: "Schedule Task",
     description: "Create, inspect, enable, disable, run, or delete scheduled prompt tasks for this Pi project.",
+    // Deferred: not declared to the model until tool_search loads it, so the
+    // resident manifest stays slim; see ensureToolSearchActive().
+    exposure: "deferred",
     promptSnippet: "Manage scheduled prompt tasks",
     promptGuidelines: [
       "Use schedule_task when the user asks Pi to perform a task later or repeatedly.",
       "Scheduled tasks are project-scoped and run in isolated Task Sessions, not in the user's session.",
       "Do not create duplicate tasks when an existing task already represents the same request.",
+      "Only create a task once the user has expressed its timing (a date/time, an interval, or a cron expression); if the timing is missing or ambiguous, ask the user to clarify — never guess a schedule.",
+      "After creating a task, repeat its id and next run time back to the user so they can verify or undo it.",
     ],
     parameters: Type.Object({
       action: actionSchema,

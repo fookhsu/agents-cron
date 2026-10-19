@@ -247,7 +247,10 @@ the prompt. Nicknames are `@yearly`, `@annually`, `@monthly`, `@weekly`,
 ## Agent tool
 
 The `schedule_task` tool supports `add`, `list`, `enable`, `disable`, `delete`,
-`run`, `runs`, and `clear`.
+`run`, `runs`, and `clear`. It is registered with `deferred` exposure: it stays
+out of the resident tool manifest until the model finds it with pi's built-in
+`tool_search`, which the extension activates on session start. On pi versions
+without deferred exposure the tool simply registers as before.
 
 ```json
 {

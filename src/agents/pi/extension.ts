@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import "../builtin.ts";
 import { registerCommands } from "./commands.ts";
 import { registerTools } from "./tools.ts";
+import { ensureToolSearchActive } from "./tool-search.ts";
 import { LEGACY_TASK_SESSION_ENV, TASK_SESSION_ENV } from "./env.ts";
 
 /**
@@ -28,4 +29,9 @@ export default function (pi: ExtensionAPI): void {
 
   registerCommands(pi);
   registerTools(pi);
+
+  // schedule_task is deferred-exposed; make sure the model can reach it
+  // through tool_search. Runs after every extension has registered, so the
+  // built-in tool_search tool exists by then. Idempotent per session start.
+  pi.on("session_start", () => ensureToolSearchActive(pi));
 }
