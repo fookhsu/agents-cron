@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -49,7 +49,7 @@ test("the packed tarball runs under a bare node", { timeout: 180_000 }, () => {
     assert.equal(install.status, 0, `npm install failed:\n${install.stderr}`);
 
     const pkg = join(appDir, "node_modules", "agents-cron");
-    for (const shipped of ["bin/agents-cron.mjs", "bin/ts-loader.mjs", "extension.mjs", "skills"])
+    for (const shipped of ["bin/agents-cron.mjs", "bin/ts-loader.mjs", "index.mjs", "skills"])
       assert.ok(existsSync(join(pkg, shipped)), `files list is missing ${shipped}`);
 
     const bin = join(pkg, "bin", "agents-cron.mjs");
@@ -69,11 +69,25 @@ test("the packed tarball runs under a bare node", { timeout: 180_000 }, () => {
   }
 });
 
-test("the pi manifest keeps the extension label short: root entry, no deep path", () => {
+test("gate: every pi.extensions entry is a root index.* file so the TUI label stays `agents-cron`", () => {
   const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
-  assert.deepEqual(pkg.pi?.extensions, ["./extension.mjs"],
-    "pi.extensions must stay the root re-export; a deep path makes pi label the extension agents-cron:src/...");
-  const entry = readFileSync(join(repoRoot, "extension.mjs"), "utf8");
+  const entries = pkg.pi?.extensions;
+  assert.ok(Array.isArray(entries) && entries.length > 0,
+    "pi.extensions must be a non-empty array");
+  // Mirror pi's getCompactExtensionLabel: it strips the `package:` prefix
+  // only when path.posix.parse(entry).name === "index" and the dir is empty.
+  // Any other name (e.g. extension.mjs) renders as `agents-cron:extension.mjs`
+  // in the extensions list.
+  for (const entry of entries) {
+    const parsed = posix.parse(entry);
+    assert.equal(parsed.name, "index",
+      `pi.extensions entry "${entry}" must have basename index.* (pi shows the pkg name only for index entries; got "${parsed.name}")`);
+    assert.ok(parsed.dir === "" || parsed.dir === ".",
+      `pi.extensions entry "${entry}" must sit at the package root (subdirectory entries render as agents-cron:<dir>)`);
+  }
+  assert.deepEqual(entries, ["./index.mjs"],
+    "pi.extensions must stay the single root re-export; keep this in sync when the entry changes");
+  const entry = readFileSync(join(repoRoot, entries[0]), "utf8");
   assert.ok(entry.includes('from "./src/agents/pi/extension.ts"'),
-    "extension.mjs must stay a re-export of src/agents/pi/extension.ts");
+    "index.mjs must stay a re-export of src/agents/pi/extension.ts");
 });

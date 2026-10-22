@@ -579,10 +579,12 @@ package ships.
 Two loaders run those sources, which is the whole packaging story:
 
 - **Extension** — `pi` compiles the extension itself through jiti. The manifest
-  entry is the root `extension.mjs`, a three-line re-export of
-  `src/agents/pi/extension.ts`, so pi's resource label stays short
-  (`agents-cron:extension.mjs`) while the real code stays next to its
-  commands, tools, and env pieces.
+  entry is the root `index.mjs`, a three-line re-export of
+  `src/agents/pi/extension.ts`. The `index` basename is load-bearing: pi's
+  compact label logic only drops the file path for entries named `index.*`,
+  so this naming is what keeps the extensions list showing just
+  `agents-cron` while the real code stays next to its commands, tools, and
+  env pieces. A CI gate in `tests/packaging.test.ts` enforces it.
 - **CLI** — cron starts `bin/agents-cron.mjs` with a bare `node`, and Node
   explicitly refuses to strip types for files under `node_modules`, which is
   where an installed package lives. The entry registers `bin/ts-loader.mjs`, a

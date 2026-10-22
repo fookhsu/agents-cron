@@ -23,12 +23,12 @@
   },
   "type": "module",
   "bin": {
-    "agents-cron": "./bin/agents-cron.mjs"
+    "agents-cron": "bin/agents-cron.mjs"
   },
   "files": [
     "assets",
     "bin",
-    "extension.mjs",
+    "index.mjs",
     "skills",
     "src"
   ],
@@ -69,7 +69,7 @@
   },
   "pi": {
     "extensions": [
-      "./extension.mjs"
+      "./index.mjs"
     ],
     "skills": [
       "./skills"
