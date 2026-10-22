@@ -7,3 +7,6 @@ HANDOFF*.md
 # legacy tsc output; the package ships TypeScript sources directly
 dist/
 *.zip
+
+# scheduler store: run artifacts + notification config (contains webhook URLs)
+.agents/
