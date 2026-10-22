@@ -96,7 +96,7 @@ trigger `manual` and leave its schedule untouched.
 - One isolated Task Session per run, stored as its own session file
 - Agent adapter layer: Pi, Claude Code, and Codex built in, new agents added without touching the core
 - Local read-only dashboard for observing tasks and run history
-- Project-local task and run storage under `.agents/cron/`
+- Global task registry (`~/.agents/cron/`) with project-local run artifacts — every task visible from any directory, its own project's tasks listed first
 - Idempotent `run-due` with a project run lock and per-run records
 - Crash recovery: stale runs are reclaimed on the next invocation
 - Per-task and per-project configuration overrides
@@ -123,6 +123,14 @@ keeps working, and pre-rename `PI_SCHEDULER_*` environment variables are still
 honored. Since 0.7.0 the store lives at `.agents/cron/` (was `.pi/scheduler/`);
 the first run after upgrading copies it over automatically and leaves the old
 copy in place, so crontabs and existing projects keep running untouched.
+
+Since 0.9.0 task definitions live in the global registry at
+`~/.agents/cron/tasks.json` (ADR 0007), bound to their project; run records
+and sessions stay in each project's `.agents/cron/`. The first command that
+touches a project imports its old `tasks.json` into the registry and renames
+it aside — rolling back is renaming the file back and reinstalling 0.8.x.
+Per-project crontab lines keep working as project-scoped passes; replace them
+with the one global line when convenient.
 
 Restart Pi or run `/reload` after installing. Installed with `pi install -l`,
 the package is recorded in the project's `.pi/settings.json` instead of your
@@ -178,6 +186,23 @@ project's tasks first, then every other project grouped under a header, with
 
 Exit codes: `0` success (including "no due tasks" and "another instance holds
 the lock"), `1` at least one task failed, `2` configuration or storage error.
+
+### The global task list
+
+Install the CLI once (`npm install -g agents-cron`) and it manages every
+project's tasks from any directory. `list` prints one ordered view — the
+current project's tasks first, then every other project grouped under a
+header with its path spelled out. Tasks whose project moved or vanished stay
+visible under a `⚠ missing directory` marker instead of disappearing:
+
+![agents-cron list in ~/demo/webapp showing the project's ci-watch and nightly-audit tasks first, then a blog project group with weekly-digest, then an old-api group whose db-backup task is marked missing directory](assets/list.png)
+
+`add` binds a task to the project it runs in (`--project` binds it elsewhere,
+`--cwd` only overrides the run's working directory). `run`, `enable`,
+`disable`, and `remove` accept any task id from any directory, and `run <id>`
+executes with the owning project's lock, writing artifacts there. Full run
+histories and session transcripts stay in each project's `.agents/cron/` —
+the registry carries only definitions, scheduling state, and counters.
 
 ## Dashboard
 
