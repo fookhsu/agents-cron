@@ -219,6 +219,11 @@ all day if you like.
 
 ## Notifications
 
+First-time setup is a guided wizard — `agents-cron setup-notify` opens the
+mail and Feishu consoles for you, captures the SMTP authorization code and
+bot webhook URL, writes the config, wires your shell and crontab, and
+live-tests every channel.
+
 Runs can announce themselves. Channels live in `.agents/cron/config.json`
 (user-authored — `chmod 600` it, webhook tokens and SMTP hosts belong behind
 file permissions), and by default only **failed** runs notify:

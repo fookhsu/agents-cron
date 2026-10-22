@@ -1,5 +1,7 @@
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import "./agents/builtin.ts";
 import type { AgentRegistry } from "./agents/registry.ts";
 import { loadNotifyConfig } from "./notify/config.ts";
@@ -24,6 +26,7 @@ const USAGE = [
   "  prune --keep <n> [--project <path>]     Keep the newest n runs per task",
   "  dashboard [--port <n>] [--project <path>]   Serve a local read-only dashboard",
   "  test-notify [--channel <id>] [--project <path>]   Send a test notification",
+  "  setup-notify                        Interactive email/Feishu channel wizard",
   "",
   "Agents: --agent <id> selects the agent adapter — built in: pi, claude, codex (default: pi).",
   "add options: --name --agent --model --thinking --cwd --tools a,b --notify always|error|never",
@@ -92,6 +95,8 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
         return await commandDashboard(project, flags, out, err);
       case "test-notify":
         return await commandTestNotify(project, flags, out, err);
+      case "setup-notify":
+        return commandSetupNotify(err);
       default:
         err(`Unknown command: ${command}`);
         err(USAGE);
@@ -189,6 +194,25 @@ async function commandAdd(
   });
   out(`Created ${task.id}; next run ${task.nextRunAt ?? "never"}`);
   return 0;
+}
+
+/**
+ * Spawns the interactive notification wizard. It drives a real terminal
+ * (menus, hidden secret entry, browser opening), so it refuses to run when
+ * stdout is not a TTY instead of half-working.
+ */
+function commandSetupNotify(err: (line: string) => void): number {
+  if (!process.stdout.isTTY) {
+    err("setup-notify is interactive — run it in a terminal.");
+    return 2;
+  }
+  const script = join(dirname(fileURLToPath(import.meta.url)), "..", "bin", "setup-notify.sh");
+  if (!existsSync(script)) {
+    err(`Setup wizard not found: ${script}`);
+    return 2;
+  }
+  const result = spawnSync("bash", [script], { stdio: "inherit" });
+  return result.status ?? 1;
 }
 
 function notifyFlag(flags: Map<string, string | boolean>): "always" | "error" | "never" | undefined {

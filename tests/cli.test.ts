@@ -277,3 +277,10 @@ test("interval schedules render in human units, not raw milliseconds", async () 
   assert.match(text, /every 90s/);
   assert.doesNotMatch(text, /every \d{5,}ms/);
 });
+
+test("setup-notify refuses to run without a terminal instead of half-working", async () => {
+  const dir = await project();
+  const { deps, stderr } = capture(dir, new FakeAgent());
+  assert.equal(await main(["setup-notify"], deps), 2);
+  assert.match(stderr.join("\n"), /interactive/);
+});
