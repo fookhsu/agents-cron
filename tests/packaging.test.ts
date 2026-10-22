@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -67,4 +67,13 @@ test("the packed tarball runs under a bare node", { timeout: 180_000 }, () => {
     rmSync(packDir, { recursive: true, force: true });
     rmSync(appDir, { recursive: true, force: true });
   }
+});
+
+test("the pi manifest keeps the extension label short: root entry, no deep path", () => {
+  const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
+  assert.deepEqual(pkg.pi?.extensions, ["./extension.mjs"],
+    "pi.extensions must stay the root re-export; a deep path makes pi label the extension agents-cron:src/...");
+  const entry = readFileSync(join(repoRoot, "extension.mjs"), "utf8");
+  assert.ok(entry.includes('from "./src/agents/pi/extension.ts"'),
+    "extension.mjs must stay a re-export of src/agents/pi/extension.ts");
 });
