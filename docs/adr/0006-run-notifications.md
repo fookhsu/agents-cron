@@ -9,7 +9,7 @@ A scheduled task that fails at 3am is indistinguishable from one that never
 ran, unless someone reads run records. Users asked for push notifications,
 email in particular. The temptation is to bolt delivery onto the Task Runner,
 but delivery is a runtime concern with its own providers (webhook vendors,
-SMTP), exactly like agent execution was before ADR 0003.
+SMTP), exactly like agent execution was before the adapter layer (ADR 0002).
 
 ## Decision
 

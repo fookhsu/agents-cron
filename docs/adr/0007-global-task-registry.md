@@ -1,11 +1,12 @@
 # ADR 0007: Global task registry, project-local artifacts
 
 Date: 2026-10-22
-Status: Accepted (implementation pending)
+Status: Accepted (implemented in 0.9.0)
 
-Supersedes the per-project registry part of `docs/scheduler-spec.md` (storage
-layout and project discovery). Everything else — the runner, adapters,
-notifications — is untouched.
+Supersedes the original per-project registry design (`docs/scheduler-spec.md`,
+since removed — the README is now the user-facing authority for storage layout
+and crontab setup). Everything else — the runner, adapters, notifications —
+is untouched.
 
 ## Context
 
@@ -15,9 +16,9 @@ invisible from every other directory unless you pass `--project`. With tasks
 spread across projects, "what is scheduled anywhere?" has no single answer,
 and every new project means another crontab line to install.
 
-The proposal under review: move task definitions and execution status into one
-global store, keep execution artifacts in the project, and show local tasks
-first in listings.
+The decision: move task definitions and execution status into one global
+store, keep execution artifacts in the project, and show local tasks first in
+listings.
 
 ## Decision
 
@@ -223,5 +224,5 @@ non-default homes); it never affects project stores.
   service.
 - ID prefix matching operates over the whole registry; ambiguity errors
   already exist and get likelier with scale — acceptable.
-- README storage-layout and crontab sections change together with
-  implementation; until then this ADR is the authority.
+- README's storage-layout and crontab sections changed with the 0.9.0
+  implementation; this ADR records why the registry looks the way it does.
