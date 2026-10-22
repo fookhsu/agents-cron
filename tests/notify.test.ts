@@ -294,3 +294,34 @@ test("a feishu webhook posts the Feishu bot msg_type/content body", async () => 
     await server.close();
   }
 });
+
+test("a feishu webhook fails loudly when the bot rejects the message", async () => {
+  let call = 0;
+  const server: Server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      call += 1;
+      res.writeHead(200, { "content-type": "application/json" });
+      // Feishu answers HTTP 200 even for business errors; code carries the truth.
+      res.end(call === 1 ? JSON.stringify({ code: 0, msg: "ok" }) : JSON.stringify({ code: 19021, msg: "sign match fail" }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const channel: WebhookChannel = {
+    id: "hook",
+    type: "webhook",
+    url: `http://127.0.0.1:${address.port}/hook`,
+    format: "feishu",
+  };
+  const notifier = notifiersFor({ on: "always", channels: [channel] })[0];
+  try {
+    await notifier.send(sampleNotification("success")); // code 0 — fine
+    await assert.rejects(notifier.send(sampleNotification("success")), /19021.*sign match fail/);
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

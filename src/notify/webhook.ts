@@ -24,6 +24,16 @@ export function webhookNotifier(channel: WebhookChannel): Notifier {
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
       if (!res.ok) throw new Error(`webhook answered HTTP ${res.status}`);
+      if (channel.format === "feishu") {
+        // Feishu answers HTTP 200 even for business errors (bad keyword,
+        // wrong format); a non-zero code means the bot never delivered.
+        const answer = (await res.json().catch(() => undefined)) as { code?: number; msg?: string } | undefined;
+        // Only an explicit non-zero code is a rejection; endpoints that answer
+        // nothing (or Feishu-compatible servers without a body) stay OK.
+        if (typeof answer?.code === "number" && answer.code !== 0) {
+          throw new Error(`feishu webhook rejected the message: ${answer.code} ${answer.msg ?? ""}`.trim());
+        }
+      }
     },
   };
 }
