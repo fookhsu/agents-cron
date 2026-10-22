@@ -514,6 +514,23 @@ add `.agents/cron/` for the project store — other tools may commit their own
 Session JSONL files, is written with `0600` permissions. `AGENTS_CRON_HOME`
 relocates the global registry for tests and non-default homes.
 
+### Task Sessions in Pi's session store (opt-in)
+
+By default the Task Session stays in the private layout above. Set
+`AGENTS_CRON_PI_STORE=1` for the `pi` adapter to place each run's transcript
+in **Pi's own default session store** instead —
+`<agentDir>/sessions/--<encoded-cwd>--/<taskId>-<runId>.jsonl` — so scheduled
+runs appear in `pi --continue` pickers and pi-web's project session lists
+like any interactive session. The file is still one fresh, isolated session
+per run; only its location changes. `PI_CODING_AGENT_DIR` and
+`PI_CODING_AGENT_SESSION_DIR` relocations are honored, keeping Pi, pi-web,
+and the scheduler on the same paths.
+
+Run records always carry the transcript's absolute path (`sessionFile`), so
+`/schedule open`, the dashboard, and future layouts need no reconfiguration:
+reads follow the record, not the layout. This variable is newer than the
+rename, so — unlike the variables above — it has no `PI_SCHEDULER_*` spelling.
+
 - A task stores a prompt and a time rule, never a shell command, and is bound
   to its project (`projectDir`): artifacts, run lock, and notification config
   all follow the binding.

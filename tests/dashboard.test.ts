@@ -154,6 +154,35 @@ test("session records serve as json or jsonl, and probes get 404s", async () => 
   }
 });
 
+test("a run whose record points outside the private layout serves from that path", async () => {
+  const project = await seedProject();
+  const storeDir = join(project.dir, "pi-store", "--encoded-cwd--");
+  await mkdir(storeDir, { recursive: true });
+  const storeRun: RunRecord = {
+    runId: "run_20261016T110000Z_storefed",
+    taskId: project.task.id,
+    trigger: "scheduled",
+    startedAt: "2026-10-16T11:00:00.000Z",
+    status: "success",
+    finishedAt: "2026-10-16T11:01:00.000Z",
+    exitCode: 0,
+    sessionFile: join(storeDir, `${project.task.id}-run_20261016T110000Z_storefed.jsonl`),
+  };
+  await writeFile(storeRun.sessionFile!, '{"type":"session"}\n');
+  await writeRun(schedulerPaths(project.dir).runsDir, storeRun);
+  const handle = await startDashboard({ projectDir: project.dir, port: 0 });
+  try {
+    const response = await fetch(`${handle.url}api/session/${storeRun.taskId}/${storeRun.runId}`);
+
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type") ?? "", /text\/plain/);
+    assert.match(await response.text(), /session/);
+  } finally {
+    await handle.close();
+    await rm(project.dir, { recursive: true, force: true });
+  }
+});
+
 test("writes are rejected and unknown routes are 404s", async () => {
   const project = await seedProject();
   const handle = await startDashboard({ projectDir: project.dir, port: 0 });

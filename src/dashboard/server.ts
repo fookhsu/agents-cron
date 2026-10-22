@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { schedulerPaths } from "../paths.ts";
 import { loadRegistry } from "../registry.ts";
 import { findTask } from "../runner.ts";
-import { listRuns, listRunsForTask } from "../runs.ts";
+import { listRuns, listRunsForTask, readRun } from "../runs.ts";
 import { listTasks } from "../task-service.ts";
 import type { RunRecord, ScheduleTask } from "../types.ts";
 import { dashboardPage } from "./page.ts";
@@ -114,7 +114,26 @@ async function route(
       respond(response, 404, { error: "No such session record" });
       return;
     }
-    const sessionsDir = (await projectPathsFor(taskId))?.sessionsDir;
+    const projectPaths = await projectPathsFor(taskId);
+    // The run record carries the session's actual location — the layout the
+    // adapter wrote it to, which may be the scheduler-private store or an
+    // agent's own store (AGENTS_CRON_PI_STORE). It is the source of truth;
+    // the fixed private-layout path below only backfills records that predate
+    // a sessionFile field.
+    const run = projectPaths ? await readRun(projectPaths.runsDir, runId) : undefined;
+    if (run?.sessionFile) {
+      const text = await readCapped(run.sessionFile);
+      if (text !== undefined) {
+        respond(
+          response,
+          200,
+          text.content,
+          run.sessionFile.endsWith(".json") ? "application/json; charset=utf-8" : "text/plain; charset=utf-8",
+        );
+        return;
+      }
+    }
+    const sessionsDir = projectPaths?.sessionsDir;
     for (const extension of [".json", ".jsonl"]) {
       if (!sessionsDir) break;
       const file = join(sessionsDir, taskId, runId + extension);

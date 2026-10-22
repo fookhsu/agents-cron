@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PI_BIN_ENV, piArgs, resolvePiBinary } from "../src/agents/pi/adapter.ts";
+import { PI_BIN_ENV, PI_STORE_ENV, piArgs, resolvePiBinary, sessionFileForRun } from "../src/agents/pi/adapter.ts";
 import type { RunRecord, ScheduleTask } from "../src/types.ts";
 
 const task: ScheduleTask = {
@@ -85,4 +85,34 @@ test("finds an executable named pi on PATH", async () => {
 test("explains how to fix a missing pi instead of failing at spawn time", () => {
   assert.throws(() => resolvePiBinary({ PATH: "" }), /Could not find "pi" on PATH/);
   assert.throws(() => resolvePiBinary({ PATH: "" }), new RegExp(PI_BIN_ENV));
+});
+
+test("without the store flag, a task session stays in the scheduler-private layout", () => {
+  const file = sessionFileForRun(task, "/proj", run.runId, {});
+
+  assert.equal(file, join("/proj", ".agents", "cron", "sessions", "task_1", "run_1.jsonl"));
+});
+
+test("the store flag moves the task session into Pi's default store, named after task and run", () => {
+  const file = sessionFileForRun(task, "/proj", run.runId, {
+    [PI_STORE_ENV]: "1",
+    PI_CODING_AGENT_DIR: "/store-root",
+  });
+
+  assert.equal(
+    file,
+    join("/store-root", "sessions", "--proj--", "task_1-run_1.jsonl"),
+  );
+});
+
+test("a task with a cwd override stores its session under that cwd's store directory", () => {
+  const file = sessionFileForRun({ ...task, cwd: "subdir" }, "/proj", run.runId, {
+    [PI_STORE_ENV]: "1",
+    PI_CODING_AGENT_DIR: "/store-root",
+  });
+
+  assert.equal(
+    file,
+    join("/store-root", "sessions", "--proj-subdir--", "task_1-run_1.jsonl"),
+  );
 });

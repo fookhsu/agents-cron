@@ -1,13 +1,23 @@
 import { chmod, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { sessionFileFor, schedulerPaths } from "../../paths.ts";
+import { schedulerPaths, sessionFileFor } from "../../paths.ts";
 import type { RunRecord, ScheduleTask } from "../../types.ts";
 import type { AgentAdapter, AgentRunRequest, AgentRunResult } from "../types.ts";
 import { captureOutput, formatScheduledPrompt, lastLines, resolveBinary, summarize } from "../run-utils.ts";
 import { LEGACY_TASK_SESSION_ENV, TASK_SESSION_ENV } from "./env.ts";
+import { taskSessionFileInPiStore } from "./pi-store.ts";
 
 /** Names the `pi` executable the adapter spawns, for cron's minimal PATH. */
 export const PI_BIN_ENV = "AGENTS_CRON_PI_BIN";
+
+/**
+ * Set to `1` to store Task Session transcripts in Pi's default session store
+ * (`<agentDir>/sessions/--<encoded-cwd>--/`) instead of the scheduler-private
+ * layout, so scheduled runs appear in `pi --continue` pickers and pi-web's
+ * project session lists like any interactive session. Opt-in and unset by
+ * default: existing installs keep the private layout and its behavior.
+ */
+export const PI_STORE_ENV = "AGENTS_CRON_PI_STORE";
 
 /**
  * Agent adapter for Pi: one fresh, isolated Pi session per Task Run, driven by
@@ -34,7 +44,7 @@ async function runInTaskSession({
   projectDir,
 }: AgentRunRequest): Promise<AgentRunResult> {
   const cwd = task.cwd ? resolve(projectDir, task.cwd) : projectDir;
-  const sessionFile = sessionFileFor(schedulerPaths(projectDir), task.id, run.runId);
+  const sessionFile = sessionFileForRun(task, projectDir, run.runId);
   await mkdir(dirname(sessionFile), { recursive: true });
 
   const bin = resolvePiBinary();
@@ -50,6 +60,25 @@ async function runInTaskSession({
 
   await chmod(sessionFile, 0o600).catch(() => undefined);
   return { sessionFile, summary: summarize(stdout) };
+}
+
+/**
+ * Where one Task Run's transcript lives. The scheduler-private layout by
+ * default; with {@link PI_STORE_ENV} set, Pi's default session store for the
+ * directory the run actually works in (task `cwd` override included), so the
+ * transcript shows up wherever tools list that project's Pi sessions.
+ */
+export function sessionFileForRun(
+  task: ScheduleTask,
+  projectDir: string,
+  runId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (env[PI_STORE_ENV]?.trim()) {
+    const cwd = task.cwd ? resolve(projectDir, task.cwd) : projectDir;
+    return taskSessionFileInPiStore(cwd, task.id, runId, env);
+  }
+  return sessionFileFor(schedulerPaths(projectDir), task.id, runId);
 }
 
 /**

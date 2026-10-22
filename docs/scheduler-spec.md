@@ -116,6 +116,7 @@ agents-cron run-due（执行面，单次幂等）
 
 - 每次 run 全新隔离 session（同一任务连续执行得到互不相干的 session；失败不向后续传递上下文）。
 - session 文件在 `sessions/<taskId>/<runId>.jsonl`，由 SDK SessionManager 创建（具体 API 以当前 `@earendil-works/pi-coding-agent` 版本为准，实现时锁定）。
+- 可选（`AGENTS_CRON_PI_STORE=1`）：pi 适配器把 transcript 写入 Pi 默认 session store（`<agentDir>/sessions/--<encoded-cwd>--/<taskId>-<runId>.jsonl`，一级 `.jsonl` 文件），定时任务得以出现在 `pi --continue` 与 pi-web 的项目会话列表；路径镜像见 `src/agents/pi/pi-store.ts`，由单测钉死。run record 的 `sessionFile` 字段始终是唯一权威路径，读侧（dashboard、`/schedule open`）只认 record。
 - 配置继承：cwd/model/thinking/tools 默认继承项目与用户配置，任务可覆盖；AGENTS.md/skills/extensions 常规加载；调度扩展自身在任务 session 中不参与调度。
 - 凭证复用 Pi auth 存储与环境变量，不写进任务文件。
 
