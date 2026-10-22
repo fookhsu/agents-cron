@@ -1,11 +1,13 @@
+import { existsSync } from "node:fs";
 import { acquireLock } from "./lock.ts";
 import { agents as builtInAgents, type AgentRegistry } from "./agents/registry.ts";
+import { importLegacyStore } from "./migration.ts";
 import { dispatchNotifications } from "./notify/dispatch.ts";
 import { loadNotifyConfig } from "./notify/config.ts";
-import { schedulerPaths, type SchedulerPaths } from "./paths.ts";
+import { schedulerPaths } from "./paths.ts";
+import { loadRegistry, updateRegistry } from "./registry.ts";
 import { createRunId, pruneRuns, reclaimStaleRuns, writeRun } from "./runs.ts";
 import { calculateNextRun, isDue } from "./scheduling.ts";
-import { loadTasks, saveTasks } from "./storage.ts";
 import type { RunRecord, ScheduleTask, Trigger } from "./types.ts";
 
 const DEFAULT_RUN_TIMEOUT_MINUTES = 30;
@@ -13,7 +15,12 @@ const DEFAULT_MISSED_GRACE_MINUTES = 5;
 const DEFAULT_KEEP_RUNS = 20;
 
 export type RunnerOptions = {
-  projectDir: string;
+  /**
+   * The project a legacy `run-due` invocation stands in: due tasks are
+   * filtered to this project's binding. Undefined means global mode — every
+   * project in the registry, group by group under each project's run lock.
+   */
+  projectDir?: string;
   /** Agent adapter registry; defaults to the built-in agents. */
   agents?: AgentRegistry;
   /** Agent for tasks that name none; defaults to the registry's default. */
@@ -21,7 +28,6 @@ export type RunnerOptions = {
   now?: Date;
   runTimeoutMinutes?: number;
   missedGraceMinutes?: number;
-  paths?: SchedulerPaths;
 };
 
 export type RunOutcome = {
@@ -31,7 +37,7 @@ export type RunOutcome = {
 };
 
 export type RunDueResult = {
-  /** Another live invocation owned the lock, so nothing was attempted. */
+  /** Every due group was owned by another live invocation, so nothing was attempted. */
   skipped: boolean;
   runs: RunOutcome[];
   failures: number;
@@ -41,39 +47,62 @@ export type RunDueResult = {
 export class TaskNotFoundError extends Error {}
 
 /**
- * The Task Runner: one idempotent pass over the project's tasks. Callers invoke
- * it from cron (`run-due`) or directly for a single task (`run <id>`).
+ * The Task Runner: one idempotent pass over due tasks. Callers invoke it from
+ * cron (`run-due`, optionally filtered to one project) or directly for a
+ * single task (`run <id>`, resolved across the whole registry). Scheduling
+ * state lives in the registry; run artifacts stay in each task's project.
  */
 export async function runDue(options: RunnerOptions): Promise<RunDueResult> {
   const now = options.now ?? new Date();
-  const paths = options.paths ?? schedulerPaths(options.projectDir);
-  const tasks = await loadTasks(paths.tasksFile);
+  if (options.projectDir) await importLegacyStore(options.projectDir);
 
-  const lock = await acquireLock(paths.lockFile);
-  if (!lock) return { skipped: true, runs: [], failures: 0, missed: 0 };
+  const tasks = await loadRegistry();
+  const scoped = options.projectDir ? tasks.filter((task) => task.projectDir === options.projectDir) : tasks;
+  const due = scoped
+    .filter((task) => task.enabled && isDue(task, now))
+    .sort((a, b) => (a.nextRunAt ?? "").localeCompare(b.nextRunAt ?? ""));
 
-  try {
-    await reclaimStaleRuns(paths.runsDir, now, options.runTimeoutMinutes ?? DEFAULT_RUN_TIMEOUT_MINUTES);
-
-    const due = tasks
-      .filter((task) => task.enabled && isDue(task, now))
-      .sort((a, b) => (a.nextRunAt ?? "").localeCompare(b.nextRunAt ?? ""));
-
-    const result: RunDueResult = { skipped: false, runs: [], failures: 0, missed: 0 };
-    for (const task of due) {
-      const outcome = isBeyondGrace(task, now, options.missedGraceMinutes ?? DEFAULT_MISSED_GRACE_MINUTES)
-        ? await markMissed(task, paths, now, options.projectDir)
-        : await executeTask(task, paths, options, "scheduled", now);
-      result.runs.push(outcome);
-      if (outcome.status === "error") result.failures += 1;
-      if (outcome.status === "missed") result.missed += 1;
-      await saveTasks(paths.tasksFile, tasks);
-    }
-    if (result.runs.length > 0) await pruneRuns(paths.runsDir, DEFAULT_KEEP_RUNS);
-    return result;
-  } finally {
-    await lock.release();
+  const result: RunDueResult = { skipped: false, runs: [], failures: 0, missed: 0 };
+  const groups = new Map<string, ScheduleTask[]>();
+  for (const task of due) {
+    const group = groups.get(task.projectDir) ?? [];
+    group.push(task);
+    groups.set(task.projectDir, group);
   }
+
+  let attempted = 0;
+  for (const [projectDir, group] of groups) {
+    if (!existsSync(projectDir)) {
+      // The run lock would recreate the directory; error the group in the
+      // registry instead, where artifacts have nowhere to live anyway.
+      for (const task of group) {
+        await reportMissingProject(task, now);
+        result.runs.push({ taskId: task.id, runId: "", status: "error" });
+        result.failures += 1;
+      }
+      continue;
+    }
+    const paths = schedulerPaths(projectDir);
+    const lock = await acquireLock(paths.lockFile);
+    if (!lock) continue; // another live runner owns this project
+    attempted += 1;
+    try {
+      await reclaimStaleRuns(paths.runsDir, now, options.runTimeoutMinutes ?? DEFAULT_RUN_TIMEOUT_MINUTES);
+      for (const task of group) {
+        const outcome = isBeyondGrace(task, now, options.missedGraceMinutes ?? DEFAULT_MISSED_GRACE_MINUTES)
+          ? await markMissed(task, now)
+          : await executeTask(task, options, "scheduled", now);
+        result.runs.push(outcome);
+        if (outcome.status === "error") result.failures += 1;
+        if (outcome.status === "missed") result.missed += 1;
+      }
+      await pruneRuns(paths.runsDir, DEFAULT_KEEP_RUNS);
+    } finally {
+      await lock.release();
+    }
+  }
+  result.skipped = due.length > 0 && attempted === 0;
+  return result;
 }
 
 /** Execute one task immediately, without disturbing its schedule. */
@@ -83,24 +112,24 @@ export async function runTask(
   options: Omit<RunnerOptions, "projectDir">,
 ): Promise<RunOutcome> {
   const now = options.now ?? new Date();
-  const paths = options.paths ?? schedulerPaths(projectDir);
-  const tasks = await loadTasks(paths.tasksFile);
+  await importLegacyStore(projectDir);
+
+  const tasks = await loadRegistry();
   const task = findTask(tasks, taskId);
   if (!task) throw new TaskNotFoundError(`Task not found: ${taskId}`);
 
+  if (!existsSync(task.projectDir)) {
+    const outcome = await reportMissingProject(task, now);
+    return { taskId: task.id, runId: "", status: outcome };
+  }
+
+  const paths = schedulerPaths(task.projectDir);
   const lock = await acquireLock(paths.lockFile);
   if (!lock) return { taskId: task.id, runId: "", status: "skipped" };
 
   try {
     await reclaimStaleRuns(paths.runsDir, now, options.runTimeoutMinutes ?? DEFAULT_RUN_TIMEOUT_MINUTES);
-    return await executeTask(
-      task,
-      paths,
-      { agents: options.agents, agent: options.agent, projectDir },
-      "manual",
-      now,
-      false,
-    );
+    return await executeTask(task, { agents: options.agents, agent: options.agent }, "manual", now, false);
   } finally {
     await lock.release();
   }
@@ -117,12 +146,12 @@ export function findTask(tasks: ScheduleTask[], id: string): ScheduleTask | unde
 
 async function executeTask(
   task: ScheduleTask,
-  paths: SchedulerPaths,
-  options: Pick<RunnerOptions, "agents" | "agent" | "projectDir">,
+  options: Pick<RunnerOptions, "agents" | "agent">,
   trigger: Trigger,
   now: Date,
   advanceSchedule = true,
 ): Promise<RunOutcome> {
+  const paths = schedulerPaths(task.projectDir);
   const runId = createRunId(now);
   const run: RunRecord = {
     runId,
@@ -137,53 +166,98 @@ async function executeTask(
   try {
     const adapter = await (options.agents ?? builtInAgents).resolve(task.agent ?? options.agent);
     agentId = adapter.id;
-    const result = await adapter.run({ task, run, projectDir: options.projectDir });
+    const result = await adapter.run({ task, run, projectDir: task.projectDir });
     const record: RunRecord = {
       ...run,
       agent: agentId,
       status: "success",
-      finishedAt: new Date().toISOString(),
+      finishedAt: now.toISOString(),
       exitCode: 0,
       sessionFile: result.sessionFile,
       summary: result.summary,
     };
     await writeRun(paths.runsDir, record);
-    await maybeNotify(paths, task, record, options.projectDir);
-    if (advanceSchedule) advance(task, now);
+    await maybeNotify(paths.dir, task, record);
+    await updateTaskState(task.id, (stored) => {
+      stored.lastRunAt = now.toISOString();
+      stored.lastStatus = "success";
+      stored.successCount = (stored.successCount ?? 0) + 1;
+      if (advanceSchedule) advance(stored, now);
+      else stored.updatedAt = now.toISOString();
+    });
     return { taskId: task.id, runId, status: "success" };
   } catch (error) {
     const record: RunRecord = {
       ...run,
       ...(agentId ? { agent: agentId } : {}),
       status: "error",
-      finishedAt: new Date().toISOString(),
+      finishedAt: now.toISOString(),
       exitCode: 1,
       error: error instanceof Error ? error.message : String(error),
     };
     await writeRun(paths.runsDir, record);
-    await maybeNotify(paths, task, record, options.projectDir);
-    if (advanceSchedule) advance(task, now);
+    await maybeNotify(paths.dir, task, record);
+    await updateTaskState(task.id, (stored) => {
+      stored.lastRunAt = now.toISOString();
+      stored.lastStatus = "error";
+      stored.errorCount = (stored.errorCount ?? 0) + 1;
+      if (advanceSchedule) advance(stored, now);
+      else stored.updatedAt = now.toISOString();
+    });
     return { taskId: task.id, runId, status: "error" };
   }
 }
 
-async function markMissed(task: ScheduleTask, paths: SchedulerPaths, now: Date, projectDir: string): Promise<RunOutcome> {
+async function markMissed(task: ScheduleTask, now: Date): Promise<RunOutcome> {
   const runId = createRunId(now);
-  const record: RunRecord = {
-    runId,
-    taskId: task.id,
-    trigger: "scheduled",
-    startedAt: now.toISOString(),
-    finishedAt: now.toISOString(),
-    status: "missed",
-    exitCode: 1,
-    error: "Planned time passed before any run claimed this task",
-  };
-  await writeRun(paths.runsDir, record);
-  await maybeNotify(paths, task, record, projectDir);
-  task.enabled = false;
-  task.updatedAt = now.toISOString();
+  if (existsSync(task.projectDir)) {
+    const paths = schedulerPaths(task.projectDir);
+    const record: RunRecord = {
+      runId,
+      taskId: task.id,
+      trigger: "scheduled",
+      startedAt: now.toISOString(),
+      finishedAt: now.toISOString(),
+      status: "missed",
+      exitCode: 1,
+      error: "Planned time passed before any run claimed this task",
+    };
+    await writeRun(paths.runsDir, record);
+    await maybeNotify(paths.dir, task, record);
+  }
+  await updateTaskState(task.id, (stored) => {
+    stored.lastRunAt = now.toISOString();
+    stored.lastStatus = "missed";
+    stored.missedCount = (stored.missedCount ?? 0) + 1;
+    stored.enabled = false;
+    stored.updatedAt = now.toISOString();
+  });
   return { taskId: task.id, runId, status: "missed" };
+}
+
+/** Records a run failure for a task whose project directory is gone. */
+async function reportMissingProject(task: ScheduleTask, now: Date): Promise<"error"> {
+  const error = `Project directory no longer exists: ${task.projectDir}`;
+  await updateTaskState(task.id, (stored) => {
+    stored.lastRunAt = now.toISOString();
+    stored.lastStatus = "error";
+    stored.errorCount = (stored.errorCount ?? 0) + 1;
+    stored.updatedAt = now.toISOString();
+    // Recurring tasks move on to their next occurrence (staying enabled, per
+    // ADR 0007 Q4); a one-shot task is left untouched for the grace window.
+    if (stored.schedule.kind !== "once") advance(stored, now);
+  });
+  process.stderr.write(`[agents-cron] task ${task.id}: ${error}\n`);
+  return "error";
+}
+
+/** Applies a registry-state change to one task under the registry lock. */
+async function updateTaskState(taskId: string, apply: (task: ScheduleTask) => void): Promise<void> {
+  await updateRegistry((tasks) => {
+    const task = tasks.find((entry) => entry.id === taskId);
+    if (task) apply(task);
+    return tasks;
+  });
 }
 
 /**
@@ -191,15 +265,10 @@ async function markMissed(task: ScheduleTask, paths: SchedulerPaths, now: Date, 
  * here is best effort: config problems and delivery failures land on stderr
  * so a cron pass never fails because of them.
  */
-async function maybeNotify(
-  paths: SchedulerPaths,
-  task: ScheduleTask,
-  run: RunRecord,
-  projectDir: string,
-): Promise<void> {
+async function maybeNotify(storeDir: string, task: ScheduleTask, run: RunRecord): Promise<void> {
   try {
-    const config = await loadNotifyConfig(paths.dir);
-    await dispatchNotifications(config, task, run, projectDir);
+    const config = await loadNotifyConfig(storeDir);
+    await dispatchNotifications(config, task, run, task.projectDir);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     process.stderr.write(`[agents-cron] notification dispatch failed: ${reason}\n`);

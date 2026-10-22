@@ -131,11 +131,17 @@ user settings.
 ## Cron setup
 
 `run-due` is the only execution entry point, and the CLI never manages your
-crontab. Add one line per project (or point `--project` at each project):
+crontab. One global line drives every project's tasks (ADR 0007: task
+definitions live in the machine-wide registry at `~/.agents/cron/`):
 
 ```cron
-*/5 * * * * cd /path/to/project && AGENTS_CRON_PI_BIN=/absolute/path/to/pi "$HOME/.pi/agent/npm/node_modules/.bin/agents-cron" run-due >> .agents/cron/cron.log 2>&1
+*/5 * * * * AGENTS_CRON_PI_BIN=/absolute/path/to/pi "$HOME/.pi/agent/npm/node_modules/.bin/agents-cron" run-due --all >> "$HOME/.agents/cron/cron.log" 2>&1
 ```
+
+A project-scoped line (`cd /path/to/project && … run-due`) still works: it
+runs only that project's due tasks, under the same per-project run lock, so
+the two line styles cannot double-execute within one tick. Migrate old
+per-project lines to the single global line when convenient.
 
 Project installs put the binary at `.pi/npm/node_modules/.bin/agents-cron`
 instead. If you linked it onto your `PATH`, plain `agents-cron` works.
@@ -150,18 +156,25 @@ minimal-`PATH` rule applies, with `AGENTS_CRON_CLAUDE_BIN`.
 ## CLI
 
 ```text
-agents-cron run-due [--project <path>] [--agent <id>]     # cron entry point
+agents-cron run-due [--project <path>|--all] [--agent <id>]   # cron entry point
 agents-cron run <taskId> [--project <path>] [--agent <id>]
-agents-cron list [--project <path>] [--json]
+agents-cron list [--json]                              # current project first, then others
 agents-cron add --prompt <text> (--at <iso>|--every <duration>|--cron <expr>) [--agent <id>] [options]
 agents-cron enable <taskId> | disable <taskId> | remove <taskId>
-agents-cron prune --keep <n>
-agents-cron dashboard [--port <n>]
+agents-cron prune --keep <n>                           # all projects unless --project
+agents-cron dashboard [--port <n>]                     # global, grouped by project
 agents-cron test-notify [--channel <id>]
 ```
 
 `--agent` selects the agent adapter (see [Agents](#agents)); it sets the task's
 agent on `add` and the fallback agent on `run-due` and `run`.
+
+Tasks live in the global registry, so `run`, `enable`, `disable`, and
+`remove` act on any task from any directory; `add` binds the task to the
+project it runs in (`--project` to bind elsewhere, `--cwd` to override only
+the run's working directory). `list` prints one ordered list — the current
+project's tasks first, then every other project grouped under a header, with
+`⚠ missing directory` on tasks whose project has moved or vanished.
 
 Exit codes: `0` success (including "no due tasks" and "another instance holds
 the lock"), `1` at least one task failed, `2` configuration or storage error.
@@ -450,27 +463,43 @@ to a specific adapter.
 ## Storage and recovery
 
 ```text
-<project>/.agents/cron/
-├── tasks.json                        # versioned task definitions, 0600
+~/.agents/cron/                       # the global Task Registry (ADR 0007)
+├── tasks.json                        # version 2: every task + scheduling state, 0600
+├── registry.lock                     # short-lived registry write lock, 0600
+└── cron.log                          # redirect target for the global crontab line
+
+<project>/.agents/cron/               # run artifacts, one store per project
 ├── config.json                       # optional notification channels (user-authored)
 ├── run.lock                          # project-wide run lock, 0600
 ├── runs/<runId>.json                 # one record per run, 0600
-└── sessions/<taskId>/<runId>.jsonl   # the Task Session, forced to 0600
+├── sessions/<taskId>/<runId>.jsonl   # the Task Session, forced to 0600
+└── tasks.json.imported.<ts>          # a migrated pre-0.9 store, kept for rollback
 ```
 
-The whole directory should be gitignored — add `.agents/cron/` (other tools
-may commit their own `.agents/` entries such as `skills/`). Every scheduler
-file, including Task Session JSONL files, is written with `0600` permissions.
+Both directories should be gitignored (the registry is never inside a repo;
+add `.agents/cron/` for the project store — other tools may commit their own
+`.agents/` entries such as `skills/`). Every scheduler file, including Task
+Session JSONL files, is written with `0600` permissions. `AGENTS_CRON_HOME`
+relocates the global registry for tests and non-default homes.
 
-- A task stores a prompt and a time rule, never a shell command.
-- Task definitions and run records are separate; run state is never inlined into
-  `tasks.json`.
-- `run-due` takes `run.lock`, executes due tasks serially, and advances each
-  task's `nextRunAt` from the current time. Missed recurring periods collapse
-  into one catch-up run.
+- A task stores a prompt and a time rule, never a shell command, and is bound
+  to its project (`projectDir`): artifacts, run lock, and notification config
+  all follow the binding.
+- Scheduling state (`nextRunAt`, counters, `lastStatus`) lives only in the
+  registry; the project store is append-only artifacts. A crash may lose one
+  run record, never re-execute a task.
+- A project still carrying a pre-registry `tasks.json` is migrated lazily on
+  the next command that touches it; the old file is renamed aside, and
+  rollback is renaming it back.
+- `run-due` takes each project's `run.lock` in turn, executes that project's
+  due tasks serially, and advances `nextRunAt` from the current time. Missed
+  recurring periods collapse into one catch-up run.
 - A one-shot task is terminal after its first attempt: success disables it,
   failure does not retry, and a run that passed the grace window (default 5
   minutes) is recorded as `missed` and needs `run <id>`.
+- A task whose project directory is gone errors in the registry (visible in
+  `list` as `⚠ missing directory`), stays enabled, and — when recurring —
+  moves to its next occurrence instead of erroring every tick.
 - A run still marked `running` after the timeout (default 30 minutes) is
   reclaimed as `error` on the next invocation.
 

@@ -1,4 +1,22 @@
-import test from "node:test";
+import test, { before, beforeEach, after } from "node:test";
+
+// Every test runs against a throwaway Task Registry.
+let restoreHome: (() => void) | undefined;
+before(async () => {
+  const home = await mkdtemp(join(tmpdir(), "agents-cron-home-"));
+  const previous = process.env.AGENTS_CRON_HOME;
+  process.env.AGENTS_CRON_HOME = home;
+  restoreHome = () => {
+    if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
+    else delete process.env.AGENTS_CRON_HOME;
+  };
+});
+after(() => restoreHome?.());
+
+beforeEach(async () => {
+  const { saveRegistry } = await import("../src/registry.ts");
+  await saveRegistry([]);
+});
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -7,7 +25,7 @@ import type { AgentRegistry } from "../src/agents/registry.ts";
 import type { AgentAdapter, AgentRunResult } from "../src/agents/types.ts";
 import { main, type CliDeps } from "../src/cli.ts";
 import { schedulerPaths } from "../src/paths.ts";
-import { listRuns } from "../src/runs.ts";
+import { listRuns, writeRun } from "../src/runs.ts";
 
 class FakeAgent implements AgentAdapter {
   readonly id = "fake";
@@ -164,3 +182,72 @@ async function captureJson(deps: CliDeps): Promise<string[]> {
   await main(["list", "--json"], { ...deps, stdout: (line) => stdout.push(line) });
   return stdout;
 }
+
+test("list shows the local project first, then other projects grouped under headers", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "agents-cron-projects-"));
+  const local = join(parent, "local");
+  const other = join(parent, "other");
+  const ghost = join(parent, "ghost");
+  await Promise.all([local, other].map((dir) => mkdir(dir, { recursive: true })));
+  const { deps, stdout } = capture(local, new FakeAgent());
+
+  await main(["add", "--prompt", "local duty", "--every", "30m", "--name", "mine"], deps);
+  await main(["add", "--prompt", "other duty", "--every", "30m", "--name", "theirs", "--project", other], deps);
+  await main(["add", "--prompt", "ghost duty", "--every", "30m", "--name", "ghosty", "--project", ghost], deps);
+
+  stdout.length = 0;
+  assert.equal(await main(["list"], deps), 0);
+  const text = stdout.join("\n");
+
+  const localAt = text.indexOf("mine");
+  const headerAt = text.indexOf(`other — ${other}`);
+  const otherAt = text.indexOf("theirs");
+  const ghostAt = text.indexOf("ghost duty");
+  assert.ok(localAt >= 0, "local task line present");
+  assert.ok(headerAt > localAt, "other project header follows the local task");
+  assert.ok(otherAt > headerAt, "other project task follows its header");
+  assert.match(text, /ghosty.*⚠ missing directory/);
+});
+
+test("run-due --all runs every project's due tasks from an unrelated directory", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "agents-cron-projects-"));
+  const nowhere = join(parent, "nowhere");
+  const projA = join(parent, "proj-a");
+  const projB = join(parent, "proj-b");
+  await Promise.all([nowhere, projA, projB].map((dir) => mkdir(dir, { recursive: true })));
+  const agent = new FakeAgent();
+  const { deps } = capture(nowhere, agent);
+
+  await main(["add", "--prompt", "a", "--at", new Date().toISOString(), "--project", projA], deps);
+  await main(["add", "--prompt", "b", "--at", new Date().toISOString(), "--project", projB], deps);
+  assert.equal(await main(["run-due", "--all"], deps), 0);
+  assert.equal(agent.calls, 2);
+});
+
+test("prune without --project walks every project in the registry", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "agents-cron-projects-"));
+  const nowhere = join(parent, "nowhere");
+  const projA = join(parent, "proj-a");
+  const projB = join(parent, "proj-b");
+  await Promise.all([nowhere, projA, projB].map((dir) => mkdir(dir, { recursive: true })));
+  const { deps, stdout } = capture(nowhere, new FakeAgent());
+
+  for (const proj of [projA, projB]) {
+    await main(["add", "--prompt", proj.slice(-1), "--every", "30m", "--project", proj], deps);
+  }
+  const { loadRegistry } = await import("../src/registry.ts");
+  const byPrompt = new Map((await loadRegistry()).map((task) => [task.prompt, task.id]));
+  for (const proj of [projA, projB]) {
+    const runsDir = schedulerPaths(proj).runsDir;
+    for (let i = 0; i < 3; i += 1) {
+      await writeRun(runsDir, {
+        runId: `run_${proj.slice(-1)}${i}`, taskId: byPrompt.get(proj.slice(-1))!, trigger: "scheduled",
+        startedAt: `2026-09-01T10:0${i}:00.000Z`, status: "success",
+      });
+    }
+  }
+
+  stdout.length = 0;
+  assert.equal(await main(["prune", "--keep", "1"], deps), 0);
+  assert.match(stdout.join("\n"), /Pruned 4 run\(s\)/);
+});

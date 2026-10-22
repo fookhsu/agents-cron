@@ -1,7 +1,7 @@
 import { readFile, rename } from "node:fs/promises";
 import { writeJsonAtomic } from "./fs-utils.ts";
 import type { ScheduleDefinition } from "./scheduling.ts";
-import type { ScheduleTask } from "./types.ts";
+import type { LegacyTask } from "./types.ts";
 
 const STORAGE_VERSION = 1;
 
@@ -17,16 +17,16 @@ export class FileTaskStore {
     this.#filePath = filePath;
   }
 
-  load(): Promise<ScheduleTask[]> {
+  load(): Promise<LegacyTask[]> {
     return loadTasks(this.#filePath);
   }
 
-  save(tasks: ScheduleTask[]): Promise<void> {
+  save(tasks: LegacyTask[]): Promise<void> {
     return saveTasks(this.#filePath, tasks);
   }
 }
 
-export async function loadTasks(filePath: string): Promise<ScheduleTask[]> {
+export async function loadTasks(filePath: string): Promise<LegacyTask[]> {
   let raw: string;
   try {
     raw = await readFile(filePath, "utf8");
@@ -47,16 +47,16 @@ export async function loadTasks(filePath: string): Promise<ScheduleTask[]> {
     throw new Error(`Unsupported scheduler file format in ${filePath}`);
   }
 
-  return parsed.tasks.filter(isScheduleTask);
+  return parsed.tasks.filter(isLegacyTask);
 }
 
-export async function saveTasks(filePath: string, tasks: ScheduleTask[]): Promise<void> {
+export async function saveTasks(filePath: string, tasks: LegacyTask[]): Promise<void> {
   await writeJsonAtomic(filePath, { version: STORAGE_VERSION, tasks });
 }
 
-function isScheduleTask(value: unknown): value is ScheduleTask {
+function isLegacyTask(value: unknown): value is LegacyTask {
   if (!value || typeof value !== "object") return false;
-  const task = value as Partial<ScheduleTask>;
+  const task = value as Partial<LegacyTask>;
   return (
     typeof task.id === "string" &&
     task.id.length > 0 &&

@@ -3,7 +3,20 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { before, after } from "node:test";
+
+// The runDue integration below writes registry state; keep it off the real home.
+let restoreHome: (() => void) | undefined;
+before(async () => {
+  const home = await mkdtemp(join(tmpdir(), "agents-cron-home-"));
+  const previous = process.env.AGENTS_CRON_HOME;
+  process.env.AGENTS_CRON_HOME = home;
+  restoreHome = () => {
+    if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
+    else delete process.env.AGENTS_CRON_HOME;
+  };
+});
+after(() => restoreHome?.());
 import { shouldNotify, notifiersFor, dispatchNotifications } from "../src/notify/dispatch.ts";
 import { loadNotifyConfig } from "../src/notify/config.ts";
 import { emailNotifier, type MailTransport } from "../src/notify/email.ts";
@@ -253,6 +266,7 @@ function terminalRun(status: RunRecord["status"]): RunRecord {
 function minimalTask(overrides: Partial<ScheduleTask>): ScheduleTask {
   return {
     id: "task_1",
+    projectDir: "/proj",
     name: "nightly digest",
     prompt: "summarize the day",
     schedule: { kind: "interval", everyMs: 3_600_000 },

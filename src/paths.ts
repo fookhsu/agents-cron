@@ -1,4 +1,5 @@
 import { cpSync, existsSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 /**
@@ -66,6 +67,28 @@ export function schedulerPaths(projectDir: string): SchedulerPaths {
     lockFile: join(dir, "run.lock"),
     runsDir: join(dir, "runs"),
     sessionsDir: join(dir, "sessions"),
+  };
+}
+
+export type RegistryPaths = {
+  dir: string;
+  tasksFile: string;
+  /** The Registry Lock: serializes read-modify-write of the registry, never held during execution. */
+  lockFile: string;
+};
+
+/**
+ * The Task Registry (ADR 0007): machine-wide, under
+ * `$AGENTS_CRON_HOME ?? $HOME` + `.agents/cron/`. The env override exists for
+ * test injection and non-default homes; it never relocates project stores.
+ */
+export function registryPaths(): RegistryPaths {
+  const root = process.env.AGENTS_CRON_HOME ?? homedir();
+  const dir = join(root, AGENTS_DIR, STORE_NAME);
+  return {
+    dir,
+    tasksFile: join(dir, "tasks.json"),
+    lockFile: join(dir, "registry.lock"),
   };
 }
 

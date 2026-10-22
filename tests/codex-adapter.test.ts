@@ -15,6 +15,7 @@ import type { RunRecord, ScheduleTask } from "../src/types.ts";
 
 const task: ScheduleTask = {
   id: "task_1",
+  projectDir: "/proj",
   name: "check-ci",
   prompt: "check the CI",
   schedule: { kind: "interval", everyMs: 1_800_000 },

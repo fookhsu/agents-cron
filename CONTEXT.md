@@ -20,6 +20,32 @@ _Avoid_: Expired task.
 The cause of a task run: `scheduled` when the task's planned time arrived, `manual` when a user requested it directly.
 _Avoid_: Event, cause, cron.
 
+## Registry
+
+**Task Registry**:
+The single machine-wide store (`~/.agents/cron/tasks.json`) holding every task definition and its authoritative scheduling state.
+_Avoid_: Global store, task list, index.
+
+**Project Directory**:
+The absolute path a task is bound to (`projectDir`). It owns that task's run artifacts, run lock, and notification config.
+_Avoid_: Workspace, repo, root.
+
+**Registry Lock**:
+The short-lived machine-wide lock that serializes read-modify-write access to the task registry. Never held while executing a task.
+_Avoid_: Global lock, mutex.
+
+**Registry State**:
+The per-task scheduling facts kept in the registry: `nextRunAt`, `enabled`, `lastRunAt`, `lastStatus`, and the run counters.
+_Avoid_: Task status, metadata, cache.
+
+**Run Artifacts**:
+The run records and session transcripts a project stores locally. Append-only; never carry scheduling state.
+_Avoid_: Results, output, logs.
+
+**Project View**:
+The registry filtered and ordered for one working directory: its own tasks first, then every other project's.
+_Avoid_: Local store, local tasks (implies a second store).
+
 ## Execution
 
 **Task Runner**:

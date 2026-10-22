@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { schedulerPaths, sessionFileFor } from "../src/paths.ts";
+import { homedir } from "node:os";
+import { registryPaths, schedulerPaths, sessionFileFor } from "../src/paths.ts";
 
 /** Builds a pre-0.7 legacy store with one task, one run record, one session. */
 function legacyStore(project: string): void {
@@ -63,4 +64,30 @@ test("a project without a legacy store stays untouched", () => {
   const paths = schedulerPaths(project);
   assert.ok(!existsSync(paths.dir));
   assert.ok(!existsSync(join(project, ".pi")));
+});
+
+test("the task registry defaults to ~/.agents/cron with its own lock", () => {
+  const previous = process.env.AGENTS_CRON_HOME;
+  delete process.env.AGENTS_CRON_HOME;
+  try {
+    const paths = registryPaths();
+    assert.equal(paths.dir, join(homedir(), ".agents", "cron"));
+    assert.equal(paths.tasksFile, join(paths.dir, "tasks.json"));
+    assert.equal(paths.lockFile, join(paths.dir, "registry.lock"));
+  } finally {
+    if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
+  }
+});
+
+test("AGENTS_CRON_HOME relocates the registry like a second home", () => {
+  const home = mkdtempSync(join(tmpdir(), "agents-cron-home-"));
+  const previous = process.env.AGENTS_CRON_HOME;
+  process.env.AGENTS_CRON_HOME = home;
+  try {
+    const paths = registryPaths();
+    assert.equal(paths.dir, join(home, ".agents", "cron"));
+  } finally {
+    if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
+    else delete process.env.AGENTS_CRON_HOME;
+  }
 });

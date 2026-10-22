@@ -1,9 +1,18 @@
-import { schedulerPaths } from "./paths.ts";
+import { resolve } from "node:path";
+import { importLegacyStore } from "./migration.ts";
+import { loadRegistry, updateRegistry } from "./registry.ts";
 import { createTaskId } from "./runs.ts";
 import { calculateNextRun, parseScheduleInput, type ScheduleInput } from "./scheduling.ts";
-import { loadTasks, saveTasks } from "./storage.ts";
 import { TaskNotFoundError } from "./runner.ts";
 import type { ScheduleTask } from "./types.ts";
+
+/**
+ * Task management over the global Task Registry (ADR 0007). Every entry point
+ * first runs the lazy legacy import for the project it touches, so a project
+ * still carrying a v1 store joins the registry the moment any command
+ * reaches it. "Local" is a view: `listTasks(cwd)` orders the registry with
+ * the current project's tasks first.
+ */
 
 export type NewTaskInput = {
   prompt: string;
@@ -17,9 +26,18 @@ export type NewTaskInput = {
   notify?: "always" | "error" | "never";
 };
 
+/** The Project View: the current project's tasks first, then every other project grouped by path. */
 export async function listTasks(projectDir: string): Promise<ScheduleTask[]> {
-  const tasks = await loadTasks(schedulerPaths(projectDir).tasksFile);
-  return tasks.sort((a, b) => (a.nextRunAt ?? "").localeCompare(b.nextRunAt ?? ""));
+  await importLegacyStore(projectDir);
+  const local = resolve(projectDir);
+  const tasks = await loadRegistry();
+  return tasks.sort((a, b) => {
+    const aLocal = a.projectDir === local;
+    const bLocal = b.projectDir === local;
+    if (aLocal !== bLocal) return aLocal ? -1 : 1;
+    if (!aLocal && a.projectDir !== b.projectDir) return a.projectDir.localeCompare(b.projectDir);
+    return (a.nextRunAt ?? "").localeCompare(b.nextRunAt ?? "");
+  });
 }
 
 export async function addTask(
@@ -27,13 +45,14 @@ export async function addTask(
   input: NewTaskInput,
   now = new Date(),
 ): Promise<ScheduleTask> {
+  await importLegacyStore(projectDir);
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("Task prompt must not be empty");
 
-  const tasks = await loadTasks(schedulerPaths(projectDir).tasksFile);
   const schedule = parseScheduleInput(input.schedule);
   const task: ScheduleTask = {
     id: createTaskId(),
+    projectDir: resolve(projectDir),
     ...(input.name?.trim() ? { name: input.name.trim() } : {}),
     prompt,
     schedule,
@@ -48,8 +67,7 @@ export async function addTask(
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };
-  tasks.push(task);
-  await saveTasks(schedulerPaths(projectDir).tasksFile, tasks);
+  await updateRegistry((tasks) => [...tasks, task]);
   return task;
 }
 
@@ -58,27 +76,36 @@ export async function setTaskEnabled(
   id: string,
   enabled: boolean,
 ): Promise<ScheduleTask> {
-  const tasks = await loadTasks(schedulerPaths(projectDir).tasksFile);
-  const task = requireTask(tasks, id);
-  task.enabled = enabled;
-  task.updatedAt = new Date().toISOString();
-  await saveTasks(schedulerPaths(projectDir).tasksFile, tasks);
-  return task;
+  await importLegacyStore(projectDir);
+  let updated: ScheduleTask | undefined;
+  await updateRegistry((tasks) => {
+    const task = requireTask(tasks, id);
+    task.enabled = enabled;
+    task.updatedAt = new Date().toISOString();
+    updated = task;
+    return tasks;
+  });
+  return updated!;
 }
 
 export async function removeTask(projectDir: string, id: string): Promise<void> {
-  const tasks = await loadTasks(schedulerPaths(projectDir).tasksFile);
-  const task = requireTask(tasks, id);
-  await saveTasks(
-    schedulerPaths(projectDir).tasksFile,
-    tasks.filter((entry) => entry.id !== task.id),
-  );
+  await importLegacyStore(projectDir);
+  await updateRegistry((tasks) => {
+    const task = requireTask(tasks, id);
+    return tasks.filter((entry) => entry.id !== task.id);
+  });
 }
 
+/** Removes every task bound to the project; returns how many were removed. */
 export async function clearTasks(projectDir: string): Promise<number> {
-  const tasks = await loadTasks(schedulerPaths(projectDir).tasksFile);
-  await saveTasks(schedulerPaths(projectDir).tasksFile, []);
-  return tasks.length;
+  await importLegacyStore(projectDir);
+  const local = resolve(projectDir);
+  let removed = 0;
+  await updateRegistry((tasks) => {
+    removed = tasks.filter((task) => task.projectDir === local).length;
+    return tasks.filter((task) => task.projectDir !== local);
+  });
+  return removed;
 }
 
 export function requireTask(tasks: ScheduleTask[], id: string): ScheduleTask {

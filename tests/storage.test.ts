@@ -9,6 +9,7 @@ import type { ScheduleTask } from "../src/types.ts";
 function task(id = "task_test"): ScheduleTask {
   return {
     id,
+    projectDir: "/proj",
     name: "test",
     prompt: "check status",
     schedule: { kind: "interval", everyMs: 300_000 },

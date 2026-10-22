@@ -1,4 +1,22 @@
-import test from "node:test";
+import test, { before, beforeEach, after } from "node:test";
+
+// Every test runs against a throwaway Task Registry.
+let restoreHome: (() => void) | undefined;
+before(async () => {
+  const home = await mkdtemp(join(tmpdir(), "agents-cron-home-"));
+  const previous = process.env.AGENTS_CRON_HOME;
+  process.env.AGENTS_CRON_HOME = home;
+  restoreHome = () => {
+    if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
+    else delete process.env.AGENTS_CRON_HOME;
+  };
+});
+after(() => restoreHome?.());
+
+beforeEach(async () => {
+  const { saveRegistry } = await import("../src/registry.ts");
+  await saveRegistry([]);
+});
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -145,5 +163,23 @@ test("writes are rejected and unknown routes are 404s", async () => {
   } finally {
     await handle.close();
     await rm(project.dir, { recursive: true, force: true });
+  }
+});
+
+test("the dashboard serves every project's tasks with their own runs", async () => {
+  const alpha = await seedProject();
+  const beta = await seedProject();
+  const elsewhere = await mkdtemp(join(tmpdir(), "agents-cron-dash-"));
+  const handle = await startDashboard({ projectDir: elsewhere, port: 0 });
+  try {
+    const overview = await (await fetch(`${handle.url}api/overview`)).json();
+    assert.equal(overview.tasks.length, 2);
+
+    const history = await (await fetch(`${handle.url}api/runs?taskId=${beta.task.id}`)).json();
+    assert.equal(history.runs.length, 2);
+    assert.ok(history.runs.every((run: RunRecord) => run.taskId === beta.task.id));
+  } finally {
+    await handle.close();
+    await rm(elsewhere, { recursive: true, force: true });
   }
 });

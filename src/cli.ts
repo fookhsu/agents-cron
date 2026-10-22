@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import "./agents/builtin.ts";
 import type { AgentRegistry } from "./agents/registry.ts";
@@ -5,6 +6,7 @@ import { loadNotifyConfig } from "./notify/config.ts";
 import { notifiersFor } from "./notify/dispatch.ts";
 import type { RunNotification } from "./notify/types.ts";
 import { schedulerPaths } from "./paths.ts";
+import { loadRegistry } from "./registry.ts";
 import { listRuns, pruneRuns } from "./runs.ts";
 import { runDue, runTask, TaskNotFoundError } from "./runner.ts";
 import type { ScheduleInput } from "./scheduling.ts";
@@ -14,9 +16,9 @@ import type { RunRecord, ScheduleTask } from "./types.ts";
 const USAGE = [
   "agents-cron <command> [options]",
   "",
-  "  run-due [--project <path>] [--agent <id>]   Execute every due task (cron entry point)",
+  "  run-due [--project <path>|--all] [--agent <id>]   Execute due tasks (cron entry point)",
   "  run <taskId> [--project <path>] [--agent <id>]   Execute one task now",
-  "  list [--project <path>] [--json]        List tasks and their latest run",
+  "  list [--json]                          List tasks: current project first, then others",
   "  add --prompt <text> (--at <iso>|--every <duration>|--cron <expr>) [options]",
   "  enable <taskId> | disable <taskId> | remove <taskId>",
   "  prune --keep <n> [--project <path>]     Keep the newest n runs per task",
@@ -46,7 +48,7 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
     return 2;
   }
 
-  const { command, project, positional, flags } = parsed;
+  const { command, project, explicitProject, positional, flags } = parsed;
   try {
     switch (command) {
       case "help":
@@ -85,7 +87,7 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
         return 0;
       }
       case "prune":
-        return await commandPrune(project, flags, out);
+        return await commandPrune(project, explicitProject, flags, out);
       case "dashboard":
         return await commandDashboard(project, flags, out, err);
       case "test-notify":
@@ -108,7 +110,7 @@ async function commandRunDue(
   out: (line: string) => void,
 ): Promise<number> {
   const result = await runDue({
-    projectDir: project,
+    ...(!flags.has("all") ? { projectDir: project } : {}),
     agents: deps.agents,
     agent: stringFlag(flags, "agent"),
   });
@@ -135,10 +137,32 @@ async function commandList(
     out("No scheduled tasks.");
     return 0;
   }
-  const runs = await listRuns(schedulerPaths(project).runsDir);
+
+  // One ordered list: the current project's tasks plain, then every other
+  // project under a header. Ambiguous basenames fall back to full paths.
+  const local = resolve(project);
+  const basenames = new Map<string, number>();
   for (const task of tasks) {
-    const latest = runs.find((run) => run.taskId === task.id);
-    out(formatTaskLine(task, latest));
+    const name = basename(task.projectDir);
+    basenames.set(name, (basenames.get(name) ?? 0) + 1);
+  }
+  const latestByProject = new Map<string, RunRecord[]>();
+  for (const task of tasks) {
+    if (latestByProject.has(task.projectDir)) continue;
+    latestByProject.set(task.projectDir, await listRuns(schedulerPaths(task.projectDir).runsDir));
+  }
+
+  let previous: string | undefined;
+  for (const task of tasks) {
+    if (task.projectDir !== local && task.projectDir !== previous) {
+      const label = basenames.get(basename(task.projectDir))! > 1 ? task.projectDir : basename(task.projectDir);
+      const missing = existsSync(task.projectDir) ? "" : " ⚠ missing directory";
+      out("");
+      out(`${label}${missing} — ${task.projectDir}`);
+      previous = task.projectDir;
+    }
+    const latest = latestByProject.get(task.projectDir)!.find((run) => run.taskId === task.id);
+    out(formatTaskLine(task, latest, task.projectDir === local ? "" : existsSync(task.projectDir) ? "" : " ⚠ missing directory"));
   }
   return 0;
 }
@@ -228,12 +252,20 @@ async function commandTestNotify(
 
 async function commandPrune(
   project: string,
+  explicitProject: boolean,
   flags: Map<string, string | boolean>,
   out: (line: string) => void,
 ): Promise<number> {
   const keep = Number(stringFlag(flags, "keep") ?? "20");
   if (!Number.isInteger(keep) || keep < 0) throw new Error("--keep must be a non-negative integer");
-  out(`Pruned ${await pruneRuns(schedulerPaths(project).runsDir, keep)} run(s)`);
+  const dirs = explicitProject
+    ? [schedulerPaths(project).runsDir]
+    : [...new Set((await loadRegistry()).map((task) => task.projectDir))].map((dir) =>
+        schedulerPaths(dir).runsDir,
+      );
+  let pruned = 0;
+  for (const dir of dirs) pruned += await pruneRuns(dir, keep);
+  out(`Pruned ${pruned} run(s)`);
   return 0;
 }
 
@@ -274,7 +306,7 @@ function scheduleFromFlags(flags: Map<string, string | boolean>): ScheduleInput 
   return { kind: "cron", expression: cron!, timezone: stringFlag(flags, "timezone") };
 }
 
-function formatTaskLine(task: ScheduleTask, latestRun?: RunRecord): string {
+function formatTaskLine(task: ScheduleTask, latestRun?: RunRecord, suffix = ""): string {
   const state = task.enabled ? "enabled" : "disabled";
   const schedule = task.schedule.kind === "interval"
     ? `every ${task.schedule.everyMs}ms`
@@ -282,31 +314,36 @@ function formatTaskLine(task: ScheduleTask, latestRun?: RunRecord): string {
       ? `cron ${task.schedule.expression}`
       : `once ${task.schedule.runAt}`;
   const last = latestRun ? ` — last ${latestRun.status} at ${latestRun.finishedAt ?? latestRun.startedAt}` : "";
-  return `${task.id} [${state}] ${task.name ?? "-"} — ${schedule} — next ${task.nextRunAt ?? "never"}${last}`;
+  return `${task.id} [${state}] ${task.name ?? "-"} — ${schedule} — next ${task.nextRunAt ?? "never"}${suffix}${last}`;
 }
 
 type ParsedArgs = {
   command: string;
   project: string;
+  /** True when --project was passed explicitly; commands like prune treat its absence as "all projects". */
+  explicitProject: boolean;
   positional: string[];
   flags: Map<string, string | boolean>;
 };
 
-const BOOLEAN_FLAGS = new Set(["json"]);
+const BOOLEAN_FLAGS = new Set(["json", "all"]);
 
 function parseArgs(argv: string[], cwd: string): ParsedArgs {
   const positional: string[] = [];
   const flags = new Map<string, string | boolean>();
   let project = cwd;
+  let explicitProject = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (token === "--project") {
       project = resolve(cwd, requireArgument(argv[++index], "--project requires a path"));
+      explicitProject = true;
       continue;
     }
     if (token.startsWith("--project=")) {
       project = resolve(cwd, token.slice("--project=".length));
+      explicitProject = true;
       continue;
     }
     if (token.startsWith("--")) {
@@ -329,7 +366,7 @@ function parseArgs(argv: string[], cwd: string): ParsedArgs {
   }
 
   const [command = "help", ...rest] = positional;
-  return { command, project, positional: rest, flags };
+  return { command, project, explicitProject, positional: rest, flags };
 }
 
 function splitFlag(token: string): [string, string | undefined] {

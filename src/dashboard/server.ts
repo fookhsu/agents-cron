@@ -2,6 +2,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { schedulerPaths } from "../paths.ts";
+import { loadRegistry } from "../registry.ts";
+import { findTask } from "../runner.ts";
 import { listRuns, listRunsForTask } from "../runs.ts";
 import { listTasks } from "../task-service.ts";
 import type { RunRecord, ScheduleTask } from "../types.ts";
@@ -33,10 +35,9 @@ export async function startDashboard(options: {
   host?: string;
 }): Promise<DashboardHandle> {
   const host = options.host ?? "127.0.0.1";
-  const paths = schedulerPaths(options.projectDir);
 
   const server = createServer((request, response) => {
-    void route(request, response, options.projectDir, paths).catch((error: unknown) => {
+    void route(request, response, options.projectDir).catch((error: unknown) => {
       respond(response, 500, { error: error instanceof Error ? error.message : String(error) });
     });
   });
@@ -55,11 +56,16 @@ export async function startDashboard(options: {
   };
 }
 
+/** The store paths of the project owning a task id, if that task exists. */
+async function projectPathsFor(taskId: string): Promise<ReturnType<typeof schedulerPaths> | undefined> {
+  const task = findTask(await loadRegistry(), taskId);
+  return task ? schedulerPaths(task.projectDir) : undefined;
+}
+
 async function route(
   request: IncomingMessage,
   response: ServerResponse,
   projectDir: string,
-  paths: ReturnType<typeof schedulerPaths>,
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://localhost");
   if (request.method !== "GET") {
@@ -73,16 +79,16 @@ async function route(
   }
 
   if (url.pathname === "/api/overview") {
+    // Global view: every registry task, latest run read from each task's own project.
     const tasks = await listTasks(projectDir);
-    const runs = await listRuns(paths.runsDir);
-    const latest = new Map<string, RunRecord>();
-    for (const run of runs) {
-      if (latest.has(run.taskId)) continue;
-      latest.set(run.taskId, run);
-    }
     const overview: { generatedAt: string; tasks: TaskOverview[] } = {
       generatedAt: new Date().toISOString(),
-      tasks: tasks.map((task) => ({ ...task, latestRun: latest.get(task.id) })),
+      tasks: await Promise.all(
+        tasks.map(async (task) => {
+          const runs = await listRuns(schedulerPaths(task.projectDir).runsDir);
+          return { ...task, latestRun: runs.find((run) => run.taskId === task.id) };
+        }),
+      ),
     };
     respond(response, 200, overview);
     return;
@@ -95,7 +101,8 @@ async function route(
       return;
     }
     const limit = clampLimit(url.searchParams.get("limit"));
-    const runs = await listRunsForTask(paths.runsDir, taskId);
+    const runsDir = (await projectPathsFor(taskId))?.runsDir;
+    const runs = runsDir ? await listRunsForTask(runsDir, taskId) : [];
     respond(response, 200, { taskId, runs: runs.slice(0, limit) });
     return;
   }
@@ -107,8 +114,10 @@ async function route(
       respond(response, 404, { error: "No such session record" });
       return;
     }
+    const sessionsDir = (await projectPathsFor(taskId))?.sessionsDir;
     for (const extension of [".json", ".jsonl"]) {
-      const file = join(paths.sessionsDir, taskId, runId + extension);
+      if (!sessionsDir) break;
+      const file = join(sessionsDir, taskId, runId + extension);
       const text = await readCapped(file);
       if (text !== undefined) {
         respond(
