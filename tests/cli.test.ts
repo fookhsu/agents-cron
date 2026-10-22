@@ -258,3 +258,22 @@ test("--help prints usage like the help command", async () => {
   assert.equal(await main(["--help"], deps), 0);
   assert.match(stdout.join("\n"), /agents-cron <command>/);
 });
+
+test("interval schedules render in human units, not raw milliseconds", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "agents-cron-projects-"));
+  const dir = join(parent, "proj");
+  await mkdir(dir, { recursive: true });
+  const { deps, stdout } = capture(dir, new FakeAgent());
+
+  await main(["add", "--prompt", "half hour", "--every", "30m"], deps);
+  await main(["add", "--prompt", "hourly", "--every", "1h"], deps);
+  await main(["add", "--prompt", "odd", "--every", "90s"], deps);
+
+  stdout.length = 0;
+  await main(["list"], deps);
+  const text = stdout.join("\n");
+  assert.match(text, /every 30m/);
+  assert.match(text, /every 1h/);
+  assert.match(text, /every 90s/);
+  assert.doesNotMatch(text, /every \d{5,}ms/);
+});

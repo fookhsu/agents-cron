@@ -306,10 +306,24 @@ function scheduleFromFlags(flags: Map<string, string | boolean>): ScheduleInput 
   return { kind: "cron", expression: cron!, timezone: stringFlag(flags, "timezone") };
 }
 
+/** 30m, 2h, 1d…; sub-second oddities keep their milliseconds. */
+function formatInterval(ms: number): string {
+  const units: Array<[number, string]> = [
+    [86_400_000, "d"],
+    [3_600_000, "h"],
+    [60_000, "m"],
+    [1_000, "s"],
+  ];
+  for (const [size, suffix] of units) {
+    if (ms >= size && ms % size === 0) return `${ms / size}${suffix}`;
+  }
+  return `${ms}ms`;
+}
+
 function formatTaskLine(task: ScheduleTask, latestRun?: RunRecord, suffix = ""): string {
   const state = task.enabled ? "enabled" : "disabled";
   const schedule = task.schedule.kind === "interval"
-    ? `every ${task.schedule.everyMs}ms`
+    ? `every ${formatInterval(task.schedule.everyMs)}`
     : task.schedule.kind === "cron"
       ? `cron ${task.schedule.expression}`
       : `once ${task.schedule.runAt}`;
