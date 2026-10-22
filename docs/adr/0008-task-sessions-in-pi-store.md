@@ -58,8 +58,11 @@ write path unstable.
 - A future Pi change to the store encoding would need a mirror update; the
   pinned tests surface it, and default-off placement contains the blast
   radius.
-- Legacy transcripts are not migrated automatically; a `migrate-sessions`
-  command can be added later if users want old runs visible in the store.
+- Legacy transcripts are not migrated implicitly: `agents-cron migrate-sessions
+  [--dry-run]` does it on demand under the run lock, relocating each pi
+  transcript by the cwd recorded in its own session header (task `cwd`, then
+  project root, as fallbacks), rewriting run records, refusing to overwrite,
+  and leaving other agents' transcripts untouched. Idempotent by design.
 - `settings.json`-level session-dir overrides in Pi are not mirrored (same
   limitation as any external tool); the documented env vars are the supported
   relocation mechanism.

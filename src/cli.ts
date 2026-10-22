@@ -3,7 +3,10 @@ import { existsSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import "./agents/builtin.ts";
+import { PI_STORE_ENV } from "./agents/pi/adapter.ts";
+import { migratePiSessions } from "./agents/pi/migrate.ts";
 import type { AgentRegistry } from "./agents/registry.ts";
+import { acquireLock } from "./lock.ts";
 import { loadNotifyConfig } from "./notify/config.ts";
 import { notifiersFor } from "./notify/dispatch.ts";
 import type { RunNotification } from "./notify/types.ts";
@@ -25,6 +28,7 @@ const USAGE = [
   "  enable <taskId> | disable <taskId> | remove <taskId>",
   "  prune --keep <n> [--project <path>]     Keep the newest n runs per task",
   "  dashboard [--port <n>] [--project <path>]   Serve a local read-only dashboard",
+  "  migrate-sessions [--dry-run] [--project <path>]   Carry legacy transcripts into Pi's session store",
   "  test-notify [--channel <id>] [--project <path>]   Send a test notification",
   "  setup-notify                        Interactive email/Feishu channel wizard",
   "",
@@ -93,6 +97,8 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
         return await commandPrune(project, explicitProject, flags, out);
       case "dashboard":
         return await commandDashboard(project, flags, out, err);
+      case "migrate-sessions":
+        return await commandMigrateSessions(project, explicitProject, flags, out, err);
       case "test-notify":
         return await commandTestNotify(project, flags, out, err);
       case "setup-notify":
@@ -294,6 +300,80 @@ async function commandPrune(
 }
 
 /**
+ * Carries legacy private-layout Task Session transcripts into Pi's default
+ * session store and rewrites run records to match. Mutates the store, so it
+ * holds the run lock; refuses (exit 2) while another instance owns it.
+ */
+/**
+ * Carries legacy private-layout Task Session transcripts into Pi's default
+ * session store and rewrites run records to match. Mutates each project's
+ * store, so it takes that project's run lock; refuses (exit 2) while another
+ * instance owns it. Without an explicit --project it covers every project in
+ * the registry, like prune.
+ */
+async function commandMigrateSessions(
+  project: string,
+  explicitProject: boolean,
+  flags: Map<string, string | boolean>,
+  out: (line: string) => void,
+  err: (line: string) => void,
+): Promise<number> {
+  const dryRun = flags.has("dry-run");
+  const projectDirs = explicitProject
+    ? [project]
+    : [...new Set((await loadRegistry()).map((task) => task.projectDir))];
+
+  if (projectDirs.length === 0) {
+    out("Nothing to migrate: no projects in the registry.");
+    return 0;
+  }
+
+  let exit = 0;
+  for (const dir of projectDirs) {
+    const paths = schedulerPaths(dir);
+    const lock = await acquireLock(paths.lockFile);
+    if (!lock) {
+      err(`Another agents-cron instance holds ${dir}'s run lock; migrate-sessions refused.`);
+      exit = 2;
+      continue;
+    }
+    try {
+      const report = await migratePiSessions({ projectDir: dir, dryRun });
+      printMigrationReport(report, dir, projectDirs.length > 1, dryRun, out);
+    } finally {
+      await lock.release();
+    }
+  }
+  return exit;
+}
+
+function printMigrationReport(
+  report: ReturnType<typeof migratePiSessions> extends Promise<infer R> ? R : never,
+  projectDir: string,
+  grouped: boolean,
+  dryRun: boolean,
+  out: (line: string) => void,
+): void {
+  const prefix = grouped ? `${projectDir}: ` : "";
+  const verb = dryRun ? "Would move" : "Moved";
+  const total = report.moves.length + report.relinks.length + report.skips.length;
+  if (total === 0) {
+    out(`${prefix}Nothing to migrate: no run records.`);
+    return;
+  }
+  out(
+    `${prefix}${verb} ${report.moves.length} transcript(s) into Pi's session store; ` +
+      `relinked ${report.relinks.length}; skipped ${report.skips.length}.`,
+  );
+  for (const move of report.moves) out(`  ${move.runId} -> ${move.to}`);
+  for (const relink of report.relinks) out(`  relinked ${relink.runId} -> ${relink.to}`);
+  for (const skip of report.skips) out(`  skipped ${skip.runId} (${skip.reason})`);
+  if (!dryRun && !process.env[PI_STORE_ENV]) {
+    out(`Note: new runs keep the private layout until ${PI_STORE_ENV}=1 is set.`);
+  }
+}
+
+/**
  * Serves the read-only dashboard until interrupted. The server is localhost
  * only and mutates nothing, so it never touches the run lock.
  */
@@ -364,7 +444,7 @@ type ParsedArgs = {
   flags: Map<string, string | boolean>;
 };
 
-const BOOLEAN_FLAGS = new Set(["json", "all"]);
+const BOOLEAN_FLAGS = new Set(["json", "all", "dry-run"]);
 
 function parseArgs(argv: string[], cwd: string): ParsedArgs {
   // `--help` anywhere on the line asks for usage, exactly like bare `help` —

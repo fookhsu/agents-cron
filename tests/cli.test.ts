@@ -18,14 +18,17 @@ beforeEach(async () => {
   await saveRegistry([]);
 });
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentRegistry } from "../src/agents/registry.ts";
 import type { AgentAdapter, AgentRunResult } from "../src/agents/types.ts";
 import { main, type CliDeps } from "../src/cli.ts";
+import { acquireLock } from "../src/lock.ts";
 import { schedulerPaths } from "../src/paths.ts";
 import { listRuns, writeRun } from "../src/runs.ts";
+import type { RunRecord } from "../src/types.ts";
 
 class FakeAgent implements AgentAdapter {
   readonly id = "fake";
@@ -283,4 +286,84 @@ test("setup-notify refuses to run without a terminal instead of half-working", a
   const { deps, stderr } = capture(dir, new FakeAgent());
   assert.equal(await main(["setup-notify"], deps), 2);
   assert.match(stderr.join("\n"), /interactive/);
+});
+
+test("migrate-sessions refuses while another instance holds the run lock", async () => {
+  const dir = await project();
+  const { deps, stderr } = capture(dir, new FakeAgent());
+  const lock = await acquireLock(schedulerPaths(dir).lockFile);
+  assert.ok(lock);
+  try {
+    assert.equal(await main(["migrate-sessions", "--project", dir], deps), 2);
+    assert.match(stderr.join("\n"), /run lock/);
+  } finally {
+    await lock.release();
+  }
+});
+
+test("migrate-sessions carries legacy transcripts into the store", async () => {
+  const dir = await project();
+  const store = await mkdtemp(join(tmpdir(), "agents-cron-store-"));
+  const { deps, stdout } = capture(dir, new FakeAgent());
+  const runId = "run_20261022T130000Z_migrat1";
+  const paths = schedulerPaths(dir);
+  await mkdir(join(paths.sessionsDir, "task_1"), { recursive: true });
+  const legacy = join(paths.sessionsDir, "task_1", `${runId}.jsonl`);
+  await writeFile(legacy, `${JSON.stringify({ type: "session", version: 3, id: "s1", timestamp: "2026-10-22T13:00:00.000Z", cwd: dir })}\n`);
+  await writeRun(paths.runsDir, {
+    runId,
+    taskId: "task_1",
+    trigger: "scheduled",
+    startedAt: "2026-10-22T13:00:00.000Z",
+    status: "success",
+    finishedAt: "2026-10-22T13:01:00.000Z",
+    exitCode: 0,
+    sessionFile: legacy,
+  } as RunRecord);
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = store;
+  try {
+    assert.equal(await main(["migrate-sessions", "--project", dir], deps), 0);
+    assert.match(stdout.join("\n"), /Moved 1 transcript/);
+
+    const encoded = `--${realpathSync(dir).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+    await stat(join(store, "sessions", encoded, `task_1-${runId}.jsonl`));
+    const record = await listRuns(paths.runsDir).then((runs) => runs.find((run) => run.runId === runId));
+    assert.equal(record?.sessionFile, join(store, "sessions", encoded, `task_1-${runId}.jsonl`));
+  } finally {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+    await rm(store, { recursive: true, force: true });
+  }
+});
+
+test("migrate-sessions --dry-run changes nothing", async () => {
+  const dir = await project();
+  const store = await mkdtemp(join(tmpdir(), "agents-cron-store-"));
+  const { deps, stdout } = capture(dir, new FakeAgent());
+  const paths = schedulerPaths(dir);
+  await mkdir(join(paths.sessionsDir, "task_1"), { recursive: true });
+  const legacy = join(paths.sessionsDir, "task_1", "run_20261022T130100Z_dryrun1.jsonl");
+  await writeFile(legacy, `${JSON.stringify({ type: "session", version: 3, id: "s1", timestamp: "2026-10-22T13:01:00.000Z", cwd: dir })}\n`);
+  await writeRun(paths.runsDir, {
+    runId: "run_20261022T130100Z_dryrun1",
+    taskId: "task_1",
+    trigger: "scheduled",
+    startedAt: "2026-10-22T13:01:00.000Z",
+    status: "success",
+    finishedAt: "2026-10-22T13:02:00.000Z",
+    exitCode: 0,
+    sessionFile: legacy,
+  } as RunRecord);
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = store;
+  try {
+    assert.equal(await main(["migrate-sessions", "--project", dir, "--dry-run"], deps), 0);
+    assert.match(stdout.join("\n"), /Would move 1 transcript/);
+    await stat(legacy);
+  } finally {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+    await rm(store, { recursive: true, force: true });
+  }
 });

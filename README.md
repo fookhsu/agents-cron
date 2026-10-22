@@ -172,6 +172,7 @@ agents-cron add --prompt <text> (--at <iso>|--every <duration>|--cron <expr>) [-
 agents-cron enable <taskId> | disable <taskId> | remove <taskId>
 agents-cron prune --keep <n>                           # all projects unless --project
 agents-cron dashboard [--port <n>]                     # global, grouped by project
+agents-cron migrate-sessions [--dry-run] [--project <path>]   # legacy transcripts into Pi's store
 agents-cron test-notify [--channel <id>]
 ```
 
@@ -530,6 +531,14 @@ Run records always carry the transcript's absolute path (`sessionFile`), so
 `/schedule open`, the dashboard, and future layouts need no reconfiguration:
 reads follow the record, not the layout. This variable is newer than the
 rename, so — unlike the variables above — it has no `PI_SCHEDULER_*` spelling.
+
+To carry transcripts that already exist into the store, run
+`agents-cron migrate-sessions` (`--dry-run` first to preview). It moves each
+pi transcript to the directory Pi uses for the cwd the run actually worked
+in — taken from the transcript's own session header — rewrites the run
+record, keeps `0600` permissions, never overwrites an existing file, and
+refuses to run while another instance holds the run lock. Other agents'
+transcripts stay where they are; a second pass is a no-op.
 
 - A task stores a prompt and a time rule, never a shell command, and is bound
   to its project (`projectDir`): artifacts, run lock, and notification config
