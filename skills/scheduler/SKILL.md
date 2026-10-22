@@ -6,11 +6,13 @@ license: MIT
 
 # Scheduled Tasks
 
-A schedule task is a stored prompt plus a time rule. Tasks are project-scoped in
-`.agents/cron/tasks.json`; each run opens its own isolated Pi Task Session.
-Execution is owned by an external scheduler that invokes
-`agents-cron run-due`, so Pi never runs tasks in the background by itself.
-Mention the cron entry when the user expects unattended runs.
+A schedule task is a stored prompt plus a time rule. Tasks live in the global
+registry `~/.agents/cron/tasks.json`, each bound to the project it was created
+in (`projectDir`); run records and Task Sessions stay in that project's
+`.agents/cron/`. Each run opens its own isolated Pi Task Session. Execution is
+owned by an external scheduler that invokes `agents-cron run-due`, so Pi never
+runs tasks in the background by itself. Mention the cron entry when the user
+expects unattended runs.
 
 ## Install
 
@@ -31,13 +33,17 @@ store with the same rules:
 
 ```bash
 agents-cron add --prompt "<text>" (--at <iso> | --every <duration> | --cron "<expr>") [options]
-agents-cron list [--json]
+agents-cron list [--json]        # current project's tasks first, then all others
 agents-cron enable <taskId> | disable <taskId> | remove <taskId>
 agents-cron run <taskId>
-agents-cron prune --keep <n>
+agents-cron prune --keep <n>     # all projects unless --project
 agents-cron dashboard [--port <n>]
 agents-cron test-notify [--channel <id>]
 ```
+
+IDs resolve across the whole registry, so these commands manage any task from
+any directory. One global crontab line (`agents-cron run-due --all`) drives
+every project; a per-project line still runs only that project.
 
 The dashboard is a read-only local web view (`127.0.0.1:7383` by default) of
 tasks, run history, and per-run summaries, errors, and session records — the
@@ -56,7 +62,7 @@ If `agents-cron` is not on `PATH`, call the installed binary directly:
 Tasks run through an agent adapter: `pi` (default), `claude` (Claude Code,
 driven headless via `claude --print`), or `codex` (driven headless via
 `codex exec`). Pin one per task with `--agent` on `add`,
-`run`, and `run-due`, or the `agent` field in `tasks.json`. A Claude Code run
+`run`, and `run-due`, or the task's `agent` field in the registry. A Claude Code run
 needs the `claude` CLI on `PATH` (`AGENTS_CRON_CLAUDE_BIN` under cron) and
 treats the task's `tools` list as an allowlist, because headless runs cannot
 approve permission prompts. A Codex run needs the `codex` CLI on `PATH`
