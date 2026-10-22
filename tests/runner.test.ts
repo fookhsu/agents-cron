@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -296,4 +296,27 @@ test("a task bound to a missing directory errors in the registry and stays enabl
   // Recurring: moves to the next occurrence instead of erroring every tick.
   assert.equal(stored.nextRunAt, "2026-09-01T10:12:00.000Z");
   assert.ok(!existsSync(ghost), "the missing directory must stay missing");
+});
+
+test("every terminal run leaves a markdown report next to its run record", async () => {
+  const projectDir = await project();
+  await saveRegistry([
+    task(projectDir, { id: "task_ok", schedule: { kind: "interval", everyMs: 300_000 }, nextRunAt: "2026-09-01T10:05:00.000Z" }),
+    task(projectDir, { id: "task_boom", name: "exploder", schedule: { kind: "once", runAt: "2026-09-01T09:30:00.000Z" }, nextRunAt: "2026-09-01T09:30:00.000Z" }),
+  ]);
+  const agent = new FakeAgent();
+
+  // success for task_ok; task_boom is beyond grace → missed
+  const result = await runDue({ projectDir, agents: registryFor(agent), now: new Date("2026-09-01T10:07:00.000Z") });
+
+  assert.equal(result.runs.length, 2);
+  const reportsDir = schedulerPaths(projectDir).reportsDir;
+  const okReport = await readFile(join(reportsDir, "task_ok", `${result.runs.find((r) => r.taskId === "task_ok")!.runId}.md`), "utf8");
+  assert.match(okReport, /# Run report: task_ok/); // unnamed task falls back to the id
+  assert.match(okReport, /Status: success/);
+  assert.match(okReport, /## Summary/);
+
+  const missedReport = await readFile(join(reportsDir, "task_boom", `${result.runs.find((r) => r.taskId === "task_boom")!.runId}.md`), "utf8");
+  assert.match(missedReport, /# Run report: exploder/);
+  assert.match(missedReport, /Status: missed/);
 });

@@ -258,13 +258,13 @@ async function commandPrune(
 ): Promise<number> {
   const keep = Number(stringFlag(flags, "keep") ?? "20");
   if (!Number.isInteger(keep) || keep < 0) throw new Error("--keep must be a non-negative integer");
-  const dirs = explicitProject
-    ? [schedulerPaths(project).runsDir]
+  const stores = explicitProject
+    ? [schedulerPaths(project)]
     : [...new Set((await loadRegistry()).map((task) => task.projectDir))].map((dir) =>
-        schedulerPaths(dir).runsDir,
+        schedulerPaths(dir),
       );
   let pruned = 0;
-  for (const dir of dirs) pruned += await pruneRuns(dir, keep);
+  for (const paths of stores) pruned += await pruneRuns(paths.runsDir, paths.reportsDir, keep);
   out(`Pruned ${pruned} run(s)`);
   return 0;
 }

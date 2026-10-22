@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -63,6 +63,22 @@ test("prunes each task independently", async () => {
   }
   await writeRun(dir, run({ runId: "run_t2_0", taskId: "task_2", startedAt: "2026-09-01T10:00:00.000Z" }));
 
-  assert.equal(await pruneRuns(dir, 2), 1);
+  assert.equal(await pruneRuns(dir, undefined, 2), 1);
   assert.deepEqual((await listRuns(dir)).map((entry) => entry.runId).sort(), ["run_t1_1", "run_t1_2", "run_t2_0"]);
+});
+
+test("prune removes the pruned runs' report files with them", async () => {
+  const dir = await runsDir();
+  const reports = join(dir, "..", "reports");
+  for (const [index, hour] of ["10", "11", "12"].entries()) {
+    const runId = `run_t1_${index}`;
+    await writeRun(dir, run({ runId, taskId: "task_1", startedAt: `2026-09-01T${hour}:00:00.000Z` }));
+    await mkdir(join(reports, "task_1"), { recursive: true });
+    await writeFile(join(reports, "task_1", `${runId}.md`), "# Run report");
+  }
+
+  assert.equal(await pruneRuns(dir, reports, 2), 1);
+
+  const left = (await readdir(join(reports, "task_1"))).sort();
+  assert.deepEqual(left, ["run_t1_1.md", "run_t1_2.md"]);
 });

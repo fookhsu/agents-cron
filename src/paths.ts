@@ -20,6 +20,7 @@ export type SchedulerPaths = {
   tasksFile: string;
   lockFile: string;
   runsDir: string;
+  reportsDir: string;
   sessionsDir: string;
 };
 
@@ -66,6 +67,7 @@ export function schedulerPaths(projectDir: string): SchedulerPaths {
     tasksFile: join(dir, "tasks.json"),
     lockFile: join(dir, "run.lock"),
     runsDir: join(dir, "runs"),
+    reportsDir: join(dir, "reports"),
     sessionsDir: join(dir, "sessions"),
   };
 }

@@ -7,6 +7,7 @@ import { loadNotifyConfig } from "./notify/config.ts";
 import { schedulerPaths } from "./paths.ts";
 import { loadRegistry, updateRegistry } from "./registry.ts";
 import { createRunId, pruneRuns, reclaimStaleRuns, writeRun } from "./runs.ts";
+import { writeRunReport } from "./reports.ts";
 import { calculateNextRun, isDue } from "./scheduling.ts";
 import type { RunRecord, ScheduleTask, Trigger } from "./types.ts";
 
@@ -96,7 +97,7 @@ export async function runDue(options: RunnerOptions): Promise<RunDueResult> {
         if (outcome.status === "error") result.failures += 1;
         if (outcome.status === "missed") result.missed += 1;
       }
-      await pruneRuns(paths.runsDir, DEFAULT_KEEP_RUNS);
+      await pruneRuns(paths.runsDir, paths.reportsDir, DEFAULT_KEEP_RUNS);
     } finally {
       await lock.release();
     }
@@ -177,6 +178,7 @@ async function executeTask(
       summary: result.summary,
     };
     await writeRun(paths.runsDir, record);
+    await writeRunReport(paths.reportsDir, task, record);
     await maybeNotify(paths.dir, task, record);
     await updateTaskState(task.id, (stored) => {
       stored.lastRunAt = now.toISOString();
@@ -196,6 +198,7 @@ async function executeTask(
       error: error instanceof Error ? error.message : String(error),
     };
     await writeRun(paths.runsDir, record);
+    await writeRunReport(paths.reportsDir, task, record);
     await maybeNotify(paths.dir, task, record);
     await updateTaskState(task.id, (stored) => {
       stored.lastRunAt = now.toISOString();
@@ -223,6 +226,7 @@ async function markMissed(task: ScheduleTask, now: Date): Promise<RunOutcome> {
       error: "Planned time passed before any run claimed this task",
     };
     await writeRun(paths.runsDir, record);
+    await writeRunReport(paths.reportsDir, task, record);
     await maybeNotify(paths.dir, task, record);
   }
   await updateTaskState(task.id, (stored) => {

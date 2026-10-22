@@ -81,8 +81,11 @@ export async function reclaimStaleRuns(
   return reclaimed;
 }
 
-/** Keep the newest `keep` runs per task; delete the rest. Returns the deleted count. */
-export async function pruneRuns(runsDir: string, keep: number): Promise<number> {
+/**
+ * Keep the newest `keep` runs per task; delete the rest, together with their
+ * report files when a reports dir is given. Returns the deleted run count.
+ */
+export async function pruneRuns(runsDir: string, reportsDir: string | undefined, keep: number): Promise<number> {
   if (keep < 0) throw new Error("keep must not be negative");
   const byTask = new Map<string, RunRecord[]>();
   for (const run of await listRuns(runsDir)) {
@@ -95,6 +98,9 @@ export async function pruneRuns(runsDir: string, keep: number): Promise<number> 
   for (const runs of byTask.values()) {
     for (const run of runs.slice(keep)) {
       await unlink(join(runsDir, `${run.runId}.json`)).catch(() => undefined);
+      if (reportsDir) {
+        await unlink(join(reportsDir, run.taskId, `${run.runId}.md`)).catch(() => undefined);
+      }
       deleted += 1;
     }
   }

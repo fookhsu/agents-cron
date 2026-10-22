@@ -39,8 +39,12 @@ The per-task scheduling facts kept in the registry: `nextRunAt`, `enabled`, `las
 _Avoid_: Task status, metadata, cache.
 
 **Run Artifacts**:
-The run records and session transcripts a project stores locally. Append-only; never carry scheduling state.
+The run records, Markdown run reports, and session transcripts a project stores locally. Append-only; never carry scheduling state.
 _Avoid_: Results, output, logs.
+
+**Run Report**:
+The Markdown document every terminal run leaves next to its run record. Metadata plus the full summary; links the session instead of inlining it.
+_Avoid_: Result file, output file, log.
 
 **Project View**:
 The registry filtered and ordered for one working directory: its own tasks first, then every other project's.

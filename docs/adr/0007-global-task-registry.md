@@ -170,6 +170,7 @@ Field notes:
 ├── tasks.json.imported.<ts>   # renamed v1 store after import; rollback artifact
 ├── run.lock                   # per-project execution lock (unchanged)
 ├── runs/<runId>.json          # full RunRecord — schema unchanged
+├── reports/<taskId>/<runId>.md  # per-run Markdown report (0.10.0)
 ├── sessions/<taskId>/<runId>.jsonl
 └── config.json                # notification channels (unchanged)
 ```
@@ -202,6 +203,10 @@ non-default homes); it never affects project stores.
 - **Global run history** — full run records stay in projects; the registry
   carries only counters and `lastStatus`. From another directory you see the
   summary, not the transcripts — by design.
+- **Notification payloads as full reports** (deferred follow-up to the
+  per-run report files): email/webhook bodies stay one-line summaries for
+  now; upgrading them to carry the report Markdown is a later, additive
+  change.
 - **Sharded registry** (`projects/<hash>/tasks.json`) — single file + registry
   lock is enough at cron granularity; a corrupt file is backed up as
   `.corrupt.<ts>` and runs survive in their projects.

@@ -100,6 +100,7 @@ trigger `manual` and leave its schedule untouched.
 - Idempotent `run-due` with a project run lock and per-run records
 - Crash recovery: stale runs are reclaimed on the next invocation
 - Per-task and per-project configuration overrides
+- Per-run Markdown reports next to the run records — what ran, how it went, where the transcript lives
 - Agent tool plus slash commands for management
 
 ## Install
@@ -497,6 +498,7 @@ to a specific adapter.
 ├── config.json                       # optional notification channels (user-authored)
 ├── run.lock                          # project-wide run lock, 0600
 ├── runs/<runId>.json                 # one record per run, 0600
+├── reports/<taskId>/<runId>.md       # per-run Markdown report, 0600
 ├── sessions/<taskId>/<runId>.jsonl   # the Task Session, forced to 0600
 └── tasks.json.imported.<ts>          # a migrated pre-0.9 store, kept for rollback
 ```
@@ -527,6 +529,10 @@ relocates the global registry for tests and non-default homes.
   moves to its next occurrence instead of erroring every tick.
 - A run still marked `running` after the timeout (default 30 minutes) is
   reclaimed as `error` on the next invocation.
+- Every terminal run — success, error, or missed — also writes a Markdown
+  report (`reports/<taskId>/<runId>.md`): metadata, the full summary, the
+  error, and a link to the session transcript. Reports are pruned together
+  with their run records.
 
 ## Development
 
