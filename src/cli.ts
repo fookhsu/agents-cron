@@ -329,6 +329,11 @@ type ParsedArgs = {
 const BOOLEAN_FLAGS = new Set(["json", "all"]);
 
 function parseArgs(argv: string[], cwd: string): ParsedArgs {
+  // `--help` anywhere on the line asks for usage, exactly like bare `help` —
+  // checked up front because flag parsing would otherwise reject it.
+  if (argv.includes("--help") || argv.includes("-h")) {
+    return { command: "help", project: cwd, explicitProject: false, positional: [], flags: new Map() };
+  }
   const positional: string[] = [];
   const flags = new Map<string, string | boolean>();
   let project = cwd;

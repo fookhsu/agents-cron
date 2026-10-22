@@ -251,3 +251,10 @@ test("prune without --project walks every project in the registry", async () => 
   assert.equal(await main(["prune", "--keep", "1"], deps), 0);
   assert.match(stdout.join("\n"), /Pruned 4 run\(s\)/);
 });
+
+test("--help prints usage like the help command", async () => {
+  const dir = await project();
+  const { deps, stdout } = capture(dir, new FakeAgent());
+  assert.equal(await main(["--help"], deps), 0);
+  assert.match(stdout.join("\n"), /agents-cron <command>/);
+});
