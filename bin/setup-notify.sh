@@ -74,7 +74,7 @@ open_url() {
     elif command -v xdg-open    >/dev/null 2>&1; then xdg-open "$url"
     elif command -v open        >/dev/null 2>&1; then open "$url"
     else false; fi
-  } >/dev/null 2>&1 || warn "couldn't open a browser, so visit it manually: $url"
+  } >/dev/null 2>&1 </dev/null || warn "couldn't open a browser, so visit it manually: $url"
 }
 
 # pause "msg" waits for the human to confirm they've done the manual part.
@@ -114,7 +114,12 @@ ask() {
   # Readline needs the colour codes wrapped in \001..\002 to place the cursor.
   p="  $s$BOLD$e$prompt$s$RESET$e "
   [[ -n "$current" ]] && p+="$s$DIM$e[Enter keeps current]$s$RESET$e "
-  read -e -r -p "$p" input || rc=1
+  if [[ -t 0 ]]; then
+    read -e -r -p "$p" input || rc=1
+  else
+    printf '%s' "$p"; printf '\n'
+    read -r input || rc=1
+  fi
   if (( rc )) && [[ -z "$input" ]]; then return 1; fi
   [[ -z "$input" && -n "$current" ]] && input="$current"
   printf -v "$key" '%s' "$input"
@@ -141,7 +146,7 @@ ask_secret() {
 # a symlink and keeps an existing file's mode.
 write_env() {
   local key="$1" value="$2" tmp sq="'\\''"
-  [[ -e "$ENV_FILE" ]] || (umask 077 && : > "$ENV_FILE")
+  if [[ ! -e "$ENV_FILE" ]]; then mkdir -p "$(dirname "$ENV_FILE")"; (umask 077 && : > "$ENV_FILE"); fi
   tmp=$(mktemp)
   grep -vE "^${key}=" "$ENV_FILE" > "$tmp" || true
   printf "%s='%s'\n" "$key" "${value//\'/$sq}" >> "$tmp"
@@ -183,7 +188,11 @@ set_var() {
 # finish clears, then shows a closing summary of everything configured.
 finish() {
   _clear
-  printf '\n%s%s  ✓ Setup complete%s\n' "$BOLD" "$GREEN" "$RESET"
+  if (( ${#SKIPPED[@]} )); then
+    printf '\n%s%s  Setup finished (with warnings)%s\n' "$BOLD" "$YELLOW" "$RESET"
+  else
+    printf '\n%s%s  ✓ Setup complete%s\n' "$BOLD" "$GREEN" "$RESET"
+  fi
   (( ${#WRITTEN_ENV[@]} ))    && note "wrote ${#WRITTEN_ENV[@]} value(s) to $ENV_FILE: ${WRITTEN_ENV[*]}"
   (( ${#WRITTEN_SECRET[@]} )) && note "set ${#WRITTEN_SECRET[@]} GitHub secret(s): ${WRITTEN_SECRET[*]}"
   if (( ${#SKIPPED[@]} )); then
@@ -230,8 +239,7 @@ NODE
 
 banner "agents-cron notifications"
 
-# ── Stage 1: which channels ──────────────────────────────────────────────
-stage "Choose channels"
+# ── Choose channels (unnumbered: the count depends on this very answer) ──
 say "Two push channels ship built in; pick either or both."
 WANT_EMAIL=false; WANT_FEISHU=false
 if confirm "Set up the email channel (QQ/Foxmail-style SMTP)?"; then WANT_EMAIL=true; fi
@@ -240,6 +248,11 @@ if [[ "$WANT_EMAIL" == false && "$WANT_FEISHU" == false ]]; then
   warn "No channels selected — nothing to do. Re-run any time."
   exit 0
 fi
+_CHOSEN_STAGES=2
+if [[ "$WANT_EMAIL" == true ]]; then _CHOSEN_STAGES=$((_CHOSEN_STAGES + 2)); fi
+if [[ "$WANT_FEISHU" == true  ]]; then _CHOSEN_STAGES=$((_CHOSEN_STAGES + 1)); fi
+TOTAL_STAGES=$_CHOSEN_STAGES
+note "this run has $TOTAL_STAGES stages"
 
 # ── Stage 2: email — enable SMTP, capture the authorization code ────────
 if [[ "$WANT_EMAIL" == true ]]; then
@@ -259,8 +272,12 @@ if [[ "$WANT_EMAIL" == true ]]; then
   ask SMTP_HOST "SMTP host (Enter = smtp.qq.com):"
   [[ -z "$SMTP_HOST" ]] && SMTP_HOST="smtp.qq.com"
   ask SMTP_FROM "Sender address (also the SMTP user, e.g. you@foxmail.com):"
-  [[ "$SMTP_FROM" != *"@"* ]] && { warn "that address has no @; aborting email setup"; exit 1; }
-  ask SMTP_TO "Recipient address (Enter = same as sender):"
+  if [[ "$SMTP_FROM" != *"@"* ]]; then
+    warn "that address has no @; aborting email setup"
+    note "any values already saved stay in $ENV_FILE — re-run the wizard and press Enter to keep them"
+    exit 1
+  fi
+  ask SMTP_TO "Recipient address (Enter = same as sender: $SMTP_FROM):"
   [[ -z "$SMTP_TO" ]] && SMTP_TO="$SMTP_FROM"
   write_env SMTP_HOST "$SMTP_HOST"
   write_env SMTP_FROM "$SMTP_FROM"
@@ -280,7 +297,11 @@ if [[ "$WANT_FEISHU" == true ]]; then
   warn "Do NOT choose 签名校验 (signature) — the notifier cannot sign."
   step "Copy the webhook URL (https://open.feishu.cn/open-apis/bot/v2/hook/…)."
   ask FEISHU_WEBHOOK_URL "Paste the webhook URL:"
-  [[ "$FEISHU_WEBHOOK_URL" != https://* ]] && { warn "that is not an https URL; aborting Feishu setup"; exit 1; }
+  if [[ "$FEISHU_WEBHOOK_URL" != https://* ]]; then
+    warn "that is not an https URL; aborting Feishu setup"
+    note "any values already saved stay in $ENV_FILE — re-run the wizard and press Enter to keep them"
+    exit 1
+  fi
   write_env FEISHU_WEBHOOK_URL "$FEISHU_WEBHOOK_URL"
   merge_channel feishu "{\"id\":\"feishu\",\"type\":\"webhook\",\"url\":\"$FEISHU_WEBHOOK_URL\",\"format\":\"feishu\"}"
   "$WIZARD_BIN" test-notify --channel feishu || warn "feishu test failed — check the webhook URL and keyword"
