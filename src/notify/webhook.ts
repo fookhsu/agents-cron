@@ -8,12 +8,16 @@ export function webhookNotifier(channel: WebhookChannel): Notifier {
   return {
     id: channel.id,
     async send(n: RunNotification): Promise<void> {
-      const asText = channel.format === "text";
-      const body = asText ? `${subjectOf(n)}\n\n${bodyOf(n)}` : JSON.stringify({ source: "agents-cron", ...n }, null, 2);
+      const body =
+        channel.format === "feishu"
+          ? JSON.stringify({ msg_type: "text", content: { text: `${subjectOf(n)}\n\n${bodyOf(n)}` } })
+          : channel.format === "text"
+            ? `${subjectOf(n)}\n\n${bodyOf(n)}`
+            : JSON.stringify({ source: "agents-cron", ...n }, null, 2);
       const res = await fetch(channel.url, {
         method: "POST",
         headers: {
-          "content-type": asText ? "text/plain; charset=utf-8" : "application/json",
+          "content-type": channel.format === "text" ? "text/plain; charset=utf-8" : "application/json",
           ...(channel.headers ?? {}),
         },
         body,

@@ -55,7 +55,7 @@ function asChannel(entry: unknown): NotificationChannel | undefined {
       c.headers && typeof c.headers === "object" && Object.values(c.headers).every((v) => typeof v === "string")
         ? (c.headers as Record<string, string>)
         : undefined;
-    const format = c.format === "text" ? "text" : "json";
+    const format = c.format === "text" || c.format === "feishu" ? c.format : "json";
     return { id: c.id, type: "webhook", url: c.url, ...(headers ? { headers } : {}), ...(format === "text" ? { format } : {}) } satisfies WebhookChannel;
   }
 

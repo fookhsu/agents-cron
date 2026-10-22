@@ -277,3 +277,20 @@ function minimalTask(overrides: Partial<ScheduleTask>): ScheduleTask {
     ...overrides,
   };
 }
+
+test("a feishu webhook posts the Feishu bot msg_type/content body", async () => {
+  const server = await capturingServer();
+  const channel: WebhookChannel = { id: "hook", type: "webhook", url: server.url, format: "feishu" };
+  await notifiersFor({ on: "always", channels: [channel] })[0].send(sampleNotification("success"));
+
+  try {
+    const [request] = server.requests;
+    assert.equal(request.headers["content-type"], "application/json");
+    const payload = JSON.parse(request.body);
+    assert.equal(payload.msg_type, "text");
+    assert.ok(payload.content.text.startsWith("✓ nightly digest success"));
+    assert.ok(payload.content.text.includes("All 82 tests passed"));
+  } finally {
+    await server.close();
+  }
+});
