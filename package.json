@@ -1,6 +1,6 @@
 {
   "name": "agents-cron",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "description": "Cron-driven scheduled prompt tasks, each run in an isolated agent session",
   "keywords": [
     "pi-package",
