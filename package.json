@@ -26,6 +26,7 @@
     "agents-cron": "bin/agents-cron.mjs"
   },
   "files": [
+    "CHANGELOG.md",
     "assets",
     "bin",
     "index.mjs",

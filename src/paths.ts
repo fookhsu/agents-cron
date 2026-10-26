@@ -75,6 +75,8 @@ export function schedulerPaths(projectDir: string): SchedulerPaths {
 export type RegistryPaths = {
   dir: string;
   tasksFile: string;
+  /** Extension bookkeeping (the update-notice marker), not task data. */
+  stateFile: string;
   /** The Registry Lock: serializes read-modify-write of the registry, never held during execution. */
   lockFile: string;
 };
@@ -90,6 +92,7 @@ export function registryPaths(): RegistryPaths {
   return {
     dir,
     tasksFile: join(dir, "tasks.json"),
+    stateFile: join(dir, "extension-state.json"),
     lockFile: join(dir, "registry.lock"),
   };
 }

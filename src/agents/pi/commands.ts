@@ -6,6 +6,7 @@ import { parseDuration, parseScheduleSpec } from "../../scheduling.ts";
 import { addTask, clearTasks, listTasks, removeTask, setTaskEnabled } from "../../task-service.ts";
 import type { RunRecord, ScheduleTask } from "../../types.ts";
 import { confirmMutation } from "./confirm.ts";
+import { readOwnChangelog } from "./update-notice.ts";
 
 export function registerCommands(pi: ExtensionAPI): void {
   pi.registerCommand("loop", {
@@ -65,6 +66,11 @@ export function registerCommands(pi: ExtensionAPI): void {
           const id = requireId(tokens[1], "runs");
           const runs = await listRunsForTask(paths.runsDir, id);
           ctx.ui.notify(runs.length ? runs.map(formatRun).join("\n") : `No runs for ${id}.`, "info");
+          return;
+        }
+        if (action === "changelog") {
+          const changelog = await readOwnChangelog();
+          ctx.ui.notify(changelog ?? "No changelog bundled; see https://github.com/fookhsu/agents-cron/releases", "info");
           return;
         }
         if (action === "open") {
@@ -130,6 +136,7 @@ const SCHEDULE_HELP = [
   "  remove <id>           delete a task (alias: delete)",
   "  runs <id>             list run records",
   "  open <runId>          show a run's Task Session path",
+  "  changelog             show the shipped changelog",
   "  clear                 delete all tasks",
   "  help                  show this help",
   "Related: /loop <spec> <prompt>, /remind in 45m <prompt>, /unschedule <id>",
