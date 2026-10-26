@@ -69,6 +69,7 @@
     }
   },
   "pi": {
+    "image": "https://raw.githubusercontent.com/fookhsu/agents-cron/main/assets/dashboard.png",
     "extensions": [
       "./index.mjs"
     ],
