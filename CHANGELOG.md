@@ -7,7 +7,13 @@ new one as an in-terminal notice; `/schedule changelog` shows this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.12.0] - 2026-10-26
+
+### Added
+
+- `show <taskId>` CLI command prints one task in full — scheduling facts, run counters, and the prompt verbatim (`--json` for the raw task)
+- `show` action on the `schedule_task` tool and `/schedule show <id>` print a task's prompt inside Pi
+- Dashboard: clicking a task reveals its prompt behind a collapsed "show prompt" toggle above the run history
 
 ## [0.11.0] - 2026-10-26
 
