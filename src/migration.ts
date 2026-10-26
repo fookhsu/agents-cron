@@ -1,5 +1,6 @@
 import { existsSync, renameSync } from "node:fs";
-import { schedulerPaths } from "./paths.ts";
+import { resolve } from "node:path";
+import { registryPaths, schedulerPaths } from "./paths.ts";
 import { updateRegistry } from "./registry.ts";
 import { loadTasks } from "./storage.ts";
 import type { LegacyTask, ScheduleTask } from "./types.ts";
@@ -20,6 +21,10 @@ export async function importLegacyStore(projectDir: string): Promise<void> {
   imported.add(projectDir);
 
   const paths = schedulerPaths(projectDir);
+  // A command run from the registry's own home dir would otherwise mistake
+  // the global registry for this project's legacy store — same relative path
+  // `.agents/cron/tasks.json` — and reject its version-2 format as garbage.
+  if (resolve(paths.tasksFile) === resolve(registryPaths().tasksFile)) return;
   if (!existsSync(paths.tasksFile)) return;
 
   const legacy = await loadTasks(paths.tasksFile);

@@ -101,6 +101,23 @@ test("adds a task and lists it as JSON", async () => {
   assert.equal(tasks[0].schedule.kind, "interval");
 });
 
+test("commands run from the registry's own home dir leave the registry alone", async () => {
+  // `$HOME/.agents/cron/tasks.json` is the global registry, but it is also
+  // the legacy-store path of a project rooted at $HOME; the lazy import must
+  // not mistake one for the other.
+  const home = process.env.AGENTS_CRON_HOME!;
+  const { deps, stdout, stderr } = capture(home, new FakeAgent());
+
+  assert.equal(await main(["list"], deps), 0);
+  assert.match(stdout.join("\n"), /No scheduled tasks/);
+
+  assert.equal(await main(["add", "--prompt", "home duty", "--every", "30m"], deps), 0);
+  const id = /Created (task_[^\s;]+)/.exec(stdout.join("\n"))![1];
+  stdout.length = 0;
+  assert.equal(await main(["show", id], deps), 0); // no format error, no import
+  assert.match(stdout.join("\n"), /prompt:\nhome duty/);
+});
+
 test("show prints one task's scheduling facts and prompt", async () => {
   const dir = await project();
   const { deps, stdout, stderr } = capture(dir, new FakeAgent());

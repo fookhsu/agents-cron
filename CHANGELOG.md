@@ -7,6 +7,12 @@ new one as an in-terminal notice; `/schedule changelog` shows this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Commands run from the registry's own home directory no longer mistake the global registry for a legacy v1 store and fail with "Unsupported scheduler file format"
+
 ## [0.12.0] - 2026-10-26
 
 ### Added
