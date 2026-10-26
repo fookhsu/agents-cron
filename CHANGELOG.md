@@ -9,14 +9,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-26
+
 ### Added
 
 - In-terminal update notices: after an upgrade, the extension lists the new features and fixes once, on the next session start
 - `/schedule changelog` prints this file from inside Pi
-
-### Fixed
-
-- `/schedule` with an unknown action now points at `help` instead of a bare usage line
+- `/schedule help` lists every action; unknown actions point at it
 
 ## [0.10.2] - 2026-10-23
 
@@ -73,7 +72,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Run notifications via webhook and email
 - The extension stays inert when two copies load in one process
 
-[Unreleased]: https://github.com/fookhsu/agents-cron/compare/v0.10.2...HEAD
+[Unreleased]: https://github.com/fookhsu/agents-cron/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/fookhsu/agents-cron/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/fookhsu/agents-cron/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/fookhsu/agents-cron/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/fookhsu/agents-cron/compare/v0.9.1...v0.10.0
