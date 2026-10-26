@@ -168,6 +168,7 @@ minimal-`PATH` rule applies, with `AGENTS_CRON_CLAUDE_BIN`.
 agents-cron run-due [--project <path>|--all] [--agent <id>]   # cron entry point
 agents-cron run <taskId> [--project <path>] [--agent <id>]
 agents-cron list [--json]                              # current project first, then others
+agents-cron show <taskId> [--json]                     # one task in full, prompt included
 agents-cron add --prompt <text> (--at <iso>|--every <duration>|--cron <expr>) [--agent <id>] [options]
 agents-cron enable <taskId> | disable <taskId> | remove <taskId>
 agents-cron prune --keep <n>                           # all projects unless --project
@@ -205,12 +206,17 @@ visible under a `⚠ missing directory` marker instead of disappearing:
 executes with the owning project's lock, writing artifacts there. Full run
 histories and session transcripts stay in each project's `.agents/cron/` —
 the registry carries only definitions, scheduling state, and counters.
+`show <taskId>` prints one task in full — project binding, schedule, run
+counters, and the prompt verbatim — and accepts an id prefix like every
+id-taking command.
 
 ## Dashboard
 
 `agents-cron dashboard` serves a read-only web view of the same store the CLI
 reads: every task with its next run, its latest outcome, per-task run history,
-and each run's summary, error, and session record. It binds to `127.0.0.1`
+and each run's summary, error, and session record. Clicking a task opens its
+detail panel, where a collapsed **show prompt** toggle reveals the stored
+prompt behind the run history. It binds to `127.0.0.1`
 only (default port 7383, `--port` to change), starts on demand, auto-refreshes
 every few seconds, and stops with Ctrl-C. Because it never writes, it takes no
 run lock and never interferes with cron's `run-due` — leave it open in a tab

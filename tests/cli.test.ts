@@ -101,6 +101,28 @@ test("adds a task and lists it as JSON", async () => {
   assert.equal(tasks[0].schedule.kind, "interval");
 });
 
+test("show prints one task's scheduling facts and prompt", async () => {
+  const dir = await project();
+  const { deps, stdout, stderr } = capture(dir, new FakeAgent());
+  await main(["add", "--prompt", "Check CI", "--every", "30m", "--name", "ci"], deps);
+  const id = /Created (task_[^\s;]+)/.exec(stdout.join("\n"))![1];
+
+  stdout.length = 0;
+  assert.equal(await main(["show", id.slice(0, 9)], deps), 0); // id prefix resolves
+  const text = stdout.join("\n");
+  assert.match(text, new RegExp(`${id} \\[enabled\\] ci`));
+  assert.match(text, /schedule: every 30m/);
+  assert.match(text, new RegExp(`project: ${dir.replace(/\//g, "\\/")}`));
+  assert.match(text, /prompt:\nCheck CI/);
+
+  stdout.length = 0;
+  assert.equal(await main(["show", "--json", id], deps), 0);
+  assert.equal(JSON.parse(stdout.join("\n")).prompt, "Check CI");
+
+  assert.equal(await main(["show", "task_missing"], deps), 2);
+  assert.match(stderr.join("\n"), /Task not found: task_missing/);
+});
+
 test("add --agent records the agent on the task", async () => {
   const dir = await project();
   const { deps, stdout } = capture(dir, new FakeAgent());

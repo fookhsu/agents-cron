@@ -98,6 +98,8 @@ test("the dashboard page is self-contained HTML", async () => {
 
     assert.match(response.headers.get("content-type") ?? "", /text\/html/);
     assert.match(html, /<title>agents-cron dashboard<\/title>/);
+    assert.match(html, /id="task-prompt"/);
+    assert.match(html, /show prompt/);
     assert.match(html, /agents-cron-dash-/);
   } finally {
     await handle.close();

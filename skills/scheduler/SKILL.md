@@ -34,6 +34,7 @@ store with the same rules:
 ```bash
 agents-cron add --prompt "<text>" (--at <iso> | --every <duration> | --cron "<expr>") [options]
 agents-cron list [--json]        # current project's tasks first, then all others
+agents-cron show <taskId> [--json]  # one task in full, prompt included
 agents-cron enable <taskId> | disable <taskId> | remove <taskId>
 agents-cron run <taskId>
 agents-cron prune --keep <n>     # all projects unless --project
@@ -92,5 +93,6 @@ on both.
   schedule.
 - Explain the task ID and next run time after creating a task.
 - A Task Session is separate from this session and its results are never
-  injected here. Inspect them with the `runs` action or `agents-cron list`, and
+  injected here. Inspect them with the `runs` action or `agents-cron list`,
+  read a task's prompt with the `show` action or `agents-cron show <id>`, and
   tell the user they can open one with `pi --session <path>`.

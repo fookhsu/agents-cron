@@ -5,13 +5,14 @@ import { schedulerPaths } from "../../paths.ts";
 import { listRunsForTask } from "../../runs.ts";
 import { runTask } from "../../runner.ts";
 import type { ScheduleInput } from "../../scheduling.ts";
-import { addTask, clearTasks, listTasks, removeTask, setTaskEnabled } from "../../task-service.ts";
+import { addTask, clearTasks, listTasks, removeTask, requireTask, setTaskEnabled } from "../../task-service.ts";
 import type { RunRecord, ScheduleTask } from "../../types.ts";
 import { confirmMutation } from "./confirm.ts";
 
 const actionSchema = StringEnum([
   "add",
   "list",
+  "show",
   "enable",
   "disable",
   "delete",
@@ -83,6 +84,11 @@ export function registerTools(pi: ExtensionAPI): void {
       }
 
       if (!params.id && params.action !== "clear") throw new Error(`${params.action} requires id`);
+
+      if (params.action === "show") {
+        const task = requireTask(await listTasks(ctx.cwd), params.id!);
+        return result(`${formatTask(task)}\nprompt:\n${task.prompt}`, task);
+      }
 
       if (params.action === "runs") {
         const runs = await listRunsForTask(schedulerPaths(ctx.cwd).runsDir, params.id!);

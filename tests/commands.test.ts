@@ -46,7 +46,7 @@ test("/schedule help shows every action", async () => {
 
   assert.equal(notices.length, 1);
   assert.equal(notices[0].level, "info");
-  for (const action of ["list", "add", "enable", "disable", "run", "remove", "runs", "open", "clear", "help"]) {
+  for (const action of ["list", "add", "enable", "disable", "run", "remove", "runs", "show", "open", "clear", "help"]) {
     assert.match(notices[0].message, new RegExp(`\\b${action}\\b`), `help mentions ${action}`);
   }
 });
@@ -72,6 +72,39 @@ test("a known action without an id still asks for the id", async () => {
   assert.equal(notices.length, 1);
   assert.equal(notices[0].level, "error");
   assert.equal(notices[0].message, "/schedule enable requires a task id");
+});
+
+test("/schedule show prints the task's prompt", async () => {
+  // The registry is machine-global; point it at a throwaway home so the
+  // assertion never touches real tasks.
+  const { mkdtemp } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const home = await mkdtemp(join(tmpdir(), "agents-cron-show-"));
+  const previous = process.env.AGENTS_CRON_HOME;
+  process.env.AGENTS_CRON_HOME = home;
+  const { saveRegistry } = await import("../src/registry.ts");
+  const { commands } = stubPi();
+  const { ctx, notices } = stubCtx();
+  try {
+    await saveRegistry([]);
+    const { addTask } = await import("../src/task-service.ts");
+    const task = await addTask((ctx as { cwd: string }).cwd, {
+      prompt: "Check the CI",
+      schedule: { kind: "interval", every: "30m" },
+    });
+
+    await commands.get("schedule")!.handler("show " + task.id, ctx);
+
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0].level, "info");
+    assert.match(notices[0].message, new RegExp(`\\[enabled\\] - — every`));
+    assert.match(notices[0].message, /prompt:\nCheck the CI/);
+  } finally {
+    if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
+    else delete process.env.AGENTS_CRON_HOME;
+    const { rm } = await import("node:fs/promises");
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 test("/schedule with no args defaults to listing tasks", async () => {

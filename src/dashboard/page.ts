@@ -68,6 +68,9 @@ export function dashboardPage(projectLabel: string): string {
                border-radius: 4px; overflow: auto; max-height: 420px; font: 12px/1.45 var(--mono);
                color: var(--text); white-space: pre-wrap; }
   .linkish { color: var(--running); cursor: pointer; text-decoration: underline dotted; font-size: 12px; }
+  #task-prompt { margin: 0 0 16px; }
+  #task-prompt .linkish { display: inline-block; margin-bottom: 6px; }
+  pre.record.prompt { max-height: 320px; }
   .refresh-note { font-size: 11px; color: var(--dim); font-family: var(--mono); }
 </style>
 </head>
@@ -81,13 +84,14 @@ export function dashboardPage(projectLabel: string): string {
   <div id="tasks" class="empty">Loading…</div>
   <section class="detail" id="task-detail" hidden>
     <h2 id="detail-title"></h2>
+    <div id="task-prompt" hidden></div>
     <ul class="runs" id="runs"></ul>
     <div class="run-detail" id="run-detail" hidden></div>
   </section>
 </main>
 <script>
 "use strict";
-const state = { selectedTask: null, selectedRun: null };
+const state = { selectedTask: null, selectedRun: null, tasks: [] };
 const el = (tag, cls, text) => {
   const node = document.createElement(tag);
   if (cls) node.className = cls;
@@ -131,6 +135,7 @@ async function refreshOverview() {
   try { data = await (await fetch("api/overview")).json(); }
   catch { document.getElementById("stamp").textContent = "connection lost; retrying"; return; }
   document.getElementById("stamp").textContent = "updated " + new Date(data.generatedAt).toLocaleTimeString();
+  state.tasks = data.tasks;
   renderTasks(data.tasks);
 }
 
@@ -178,8 +183,33 @@ async function selectTask(taskId) {
   state.selectedTask = taskId;
   state.selectedRun = null;
   document.getElementById("run-detail").hidden = true;
+  renderPrompt(state.tasks.find((task) => task.id === taskId));
   await refreshOverview();
   await refreshRuns();
+}
+
+/**
+ * The prompt block sits between the title and the runs list. It renders once
+ * per selection (not in the polling path) so an open prompt survives the 3s
+ * refresh. Collapsed by default — prompts run to kilobytes.
+ */
+function renderPrompt(task) {
+  const box = document.getElementById("task-prompt");
+  box.textContent = "";
+  if (!task) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  const toggle = el("div", "linkish", "show prompt");
+  const pre = el("pre", "record prompt", task.prompt);
+  pre.hidden = true;
+  toggle.addEventListener("click", () => {
+    pre.hidden = !pre.hidden;
+    toggle.textContent = pre.hidden ? "show prompt" : "hide prompt";
+  });
+  box.appendChild(toggle);
+  box.appendChild(pre);
 }
 
 async function refreshRuns() {

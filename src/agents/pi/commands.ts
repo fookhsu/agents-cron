@@ -3,7 +3,7 @@ import { readRun, listRunsForTask } from "../../runs.ts";
 import { runTask } from "../../runner.ts";
 import { schedulerPaths } from "../../paths.ts";
 import { parseDuration, parseScheduleSpec } from "../../scheduling.ts";
-import { addTask, clearTasks, listTasks, removeTask, setTaskEnabled } from "../../task-service.ts";
+import { addTask, clearTasks, listTasks, removeTask, requireTask, setTaskEnabled } from "../../task-service.ts";
 import type { RunRecord, ScheduleTask } from "../../types.ts";
 import { confirmMutation } from "./confirm.ts";
 import { readOwnChangelog } from "./update-notice.ts";
@@ -66,6 +66,12 @@ export function registerCommands(pi: ExtensionAPI): void {
           const id = requireId(tokens[1], "runs");
           const runs = await listRunsForTask(paths.runsDir, id);
           ctx.ui.notify(runs.length ? runs.map(formatRun).join("\n") : `No runs for ${id}.`, "info");
+          return;
+        }
+        if (action === "show") {
+          const id = requireId(tokens[1], "show");
+          const task = requireTask(await listTasks(ctx.cwd), id);
+          ctx.ui.notify(`${formatTask(task)}\nprompt:\n${task.prompt}`, "info");
           return;
         }
         if (action === "changelog") {
@@ -135,6 +141,7 @@ const SCHEDULE_HELP = [
   "  run <id>              run a task now; its schedule is untouched",
   "  remove <id>           delete a task (alias: delete)",
   "  runs <id>             list run records",
+  "  show <id>             show a task's scheduling facts and prompt",
   "  open <runId>          show a run's Task Session path",
   "  changelog             show the shipped changelog",
   "  clear                 delete all tasks",

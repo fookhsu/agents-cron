@@ -15,7 +15,7 @@ import { loadRegistry } from "./registry.ts";
 import { listRuns, pruneRuns } from "./runs.ts";
 import { runDue, runTask, TaskNotFoundError } from "./runner.ts";
 import type { ScheduleInput } from "./scheduling.ts";
-import { addTask, clearTasks, listTasks, removeTask, setTaskEnabled } from "./task-service.ts";
+import { addTask, clearTasks, listTasks, removeTask, requireTask, setTaskEnabled } from "./task-service.ts";
 import type { RunRecord, ScheduleTask } from "./types.ts";
 
 const USAGE = [
@@ -24,6 +24,7 @@ const USAGE = [
   "  run-due [--project <path>|--all] [--agent <id>]   Execute due tasks (cron entry point)",
   "  run <taskId> [--project <path>] [--agent <id>]   Execute one task now",
   "  list [--json]                          List tasks: current project first, then others",
+  "  show <taskId> [--json]                  Show one task: scheduling facts and its prompt",
   "  add --prompt <text> (--at <iso>|--every <duration>|--cron <expr>) [options]",
   "  enable <taskId> | disable <taskId> | remove <taskId>",
   "  prune --keep <n> [--project <path>]     Keep the newest n runs per task",
@@ -74,6 +75,10 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
       }
       case "list":
         return await commandList(project, flags, out);
+      case "show": {
+        const id = requireArgument(positional[0], "show requires a task id");
+        return await commandShow(project, flags, id, out);
+      }
       case "add":
         return await commandAdd(project, flags, out);
       case "enable":
@@ -175,6 +180,22 @@ async function commandList(
     const latest = latestByProject.get(task.projectDir)!.find((run) => run.taskId === task.id);
     out(formatTaskLine(task, latest, task.projectDir === local ? "" : existsSync(task.projectDir) ? "" : " ⚠ missing directory"));
   }
+  return 0;
+}
+
+/** One task in full: scheduling facts first, then the prompt verbatim. */
+async function commandShow(
+  project: string,
+  flags: Map<string, string | boolean>,
+  id: string,
+  out: (line: string) => void,
+): Promise<number> {
+  const task = requireTask(await listTasks(project), id);
+  if (flags.has("json")) {
+    out(JSON.stringify(task, null, 2));
+    return 0;
+  }
+  out(formatTaskDetail(task));
   return 0;
 }
 
@@ -433,6 +454,42 @@ function formatTaskLine(task: ScheduleTask, latestRun?: RunRecord, suffix = ""):
       : `once ${task.schedule.runAt}`;
   const last = latestRun ? ` — last ${latestRun.status} at ${latestRun.finishedAt ?? latestRun.startedAt}` : "";
   return `${task.id} [${state}] ${task.name ?? "-"} — ${schedule} — next ${task.nextRunAt ?? "never"}${suffix}${last}`;
+}
+
+/** Verbose sibling of formatTaskLine: every scheduling fact, then the prompt. */
+function formatTaskDetail(task: ScheduleTask): string {
+  const lines = [
+    `${task.id} [${task.enabled ? "enabled" : "disabled"}] ${task.name ?? "-"}`,
+    `project: ${task.projectDir}`,
+    `schedule: ${scheduleSummary(task)}`,
+    `next run: ${task.nextRunAt ?? "never"}`,
+  ];
+  if (task.lastRunAt) {
+    lines.push(`last run: ${task.lastRunAt}${task.lastStatus ? ` (${task.lastStatus})` : ""}`);
+  }
+  const counters = [
+    task.successCount !== undefined ? `${task.successCount} success` : undefined,
+    task.errorCount !== undefined ? `${task.errorCount} error` : undefined,
+    task.missedCount !== undefined ? `${task.missedCount} missed` : undefined,
+  ].filter(Boolean);
+  if (counters.length > 0) lines.push(`runs: ${counters.join(", ")}`);
+  if (task.agent) lines.push(`agent: ${task.agent}`);
+  if (task.model) lines.push(`model: ${task.model}`);
+  if (task.thinking) lines.push(`thinking: ${task.thinking}`);
+  if (task.cwd) lines.push(`cwd: ${task.cwd}`);
+  if (task.tools?.length) lines.push(`tools: ${task.tools.join(", ")}`);
+  if (task.notify) lines.push(`notify: ${task.notify}`);
+  lines.push(`created: ${task.createdAt}  updated: ${task.updatedAt}`);
+  lines.push("", "prompt:", task.prompt);
+  return lines.join("\n");
+}
+
+function scheduleSummary(task: ScheduleTask): string {
+  if (task.schedule.kind === "interval") return `every ${formatInterval(task.schedule.everyMs)}`;
+  if (task.schedule.kind === "cron") {
+    return `cron ${task.schedule.expression}${task.schedule.timezone ? ` (${task.schedule.timezone})` : ""}`;
+  }
+  return `once ${task.schedule.runAt}`;
 }
 
 type ParsedArgs = {
