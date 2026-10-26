@@ -277,6 +277,7 @@ file permissions), and by default only **failed** runs notify:
 /schedule runs <id>
 /schedule open <runId>
 /schedule clear
+/schedule help
 /unschedule <id>
 ```
 
@@ -288,6 +289,7 @@ the prompt. Nicknames are `@yearly`, `@annually`, `@monthly`, `@weekly`,
 
 `/schedule open <runId>` prints the Task Session file path and suggests
 `pi --session <path>`. Task Sessions are never merged into the current session.
+`/schedule help` (or any unknown action) prints the full action list.
 
 ## Agent tool
 

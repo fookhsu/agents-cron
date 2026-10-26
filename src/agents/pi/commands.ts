@@ -38,13 +38,17 @@ export function registerCommands(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("schedule", {
-    description: "List and manage scheduled tasks",
+    description: "List and manage scheduled tasks — /schedule help shows usage",
     handler: async (args, ctx) => {
       await guard(ctx, async () => {
         const tokens = args.trim().split(/\s+/).filter(Boolean);
         const action = tokens[0] ?? "list";
         const paths = schedulerPaths(ctx.cwd);
 
+        if (action === "help") {
+          ctx.ui.notify(SCHEDULE_HELP, "info");
+          return;
+        }
         if (action === "list") {
           const tasks = await listTasks(ctx.cwd);
           ctx.ui.notify(tasks.length ? tasks.map(formatTask).join("\n") : "No scheduled tasks.", "info");
@@ -78,23 +82,24 @@ export function registerCommands(pi: ExtensionAPI): void {
           return;
         }
 
-        const id = requireId(tokens[1], action);
         if (action === "enable" || action === "disable") {
+          const id = requireId(tokens[1], action);
           await setTaskEnabled(ctx.cwd, id, action === "enable");
           ctx.ui.notify(`${action === "enable" ? "Enabled" : "Disabled"} ${id}`, "info");
           return;
         }
         if (action === "run") {
-          await executeNow(ctx, id);
+          await executeNow(ctx, requireId(tokens[1], action));
           return;
         }
         if (action === "remove" || action === "delete") {
+          const id = requireId(tokens[1], action);
           await confirmMutation(ctx, `Delete scheduled task ${id}?`);
           await removeTask(ctx.cwd, id);
           ctx.ui.notify(`Removed ${id}`, "info");
           return;
         }
-        throw new Error("Usage: /schedule [list|add|enable|disable|run|remove|runs|open|clear] <id>");
+        throw new Error(`Unknown action "${action}".\n${SCHEDULE_HELP}`);
       });
     },
   });
@@ -114,6 +119,21 @@ export function registerCommands(pi: ExtensionAPI): void {
 }
 
 type CommandContext = Parameters<Parameters<ExtensionAPI["registerCommand"]>[1]["handler"]>[1];
+
+const SCHEDULE_HELP = [
+  "Usage: /schedule <action> [args]",
+  "  list                  list tasks (default action)",
+  "  add <spec> <prompt>   create a task; spec: 30m, @daily, or \"0 9 * * 1-5\"",
+  "  enable <id>           resume a paused task",
+  "  disable <id>          pause a task",
+  "  run <id>              run a task now; its schedule is untouched",
+  "  remove <id>           delete a task (alias: delete)",
+  "  runs <id>             list run records",
+  "  open <runId>          show a run's Task Session path",
+  "  clear                 delete all tasks",
+  "  help                  show this help",
+  "Related: /loop <spec> <prompt>, /remind in 45m <prompt>, /unschedule <id>",
+].join("\n");
 
 async function guard(ctx: CommandContext, run: () => Promise<void>): Promise<void> {
   try {
