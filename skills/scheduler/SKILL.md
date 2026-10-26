@@ -1,7 +1,7 @@
 ---
 name: scheduler
 description: Create and manage cron-driven prompt tasks for a project. Use when the user wants something to run later or on a recurring schedule, or to inspect why a scheduled task did not run.
-license: MIT
+license: AGPL-3.0
 ---
 
 # Scheduled Tasks

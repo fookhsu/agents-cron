@@ -12,7 +12,7 @@
     "automation"
   ],
   "author": "fookhsu",
-  "license": "MIT",
+  "license": "AGPL-3.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/fookhsu/agents-cron.git"

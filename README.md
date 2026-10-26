@@ -631,3 +631,7 @@ sources that actually run), and `skills/`. Nothing is compiled, so what
 `npm pack` lists is what executes on install. `@earendil-works/pi-coding-agent`
 stays an optional peer: only the extension imports it, and Pi hands its own
 copy to extensions, so an install of the scheduler never needs a second SDK.
+
+## License
+
+[AGPL-3.0](LICENSE) — GNU Affero General Public License v3.0.
