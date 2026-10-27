@@ -252,6 +252,12 @@ file permissions), and by default only **failed** runs notify:
 
 - `on` is the project default — `error` (default), `always`, or `never` — and a
   task overrides it with `notify` (`agents-cron add --notify always …`).
+- A task can also **route** its notifications: `notifyTo` names the channel ids
+  it announces on, and a task without it notifies every configured channel.
+  Route with `agents-cron add --notify-to feishu,mail …`, or in Pi with a
+  trailing flag: `/remind in 45m review the release --to feishu --notify always`.
+  Channel ids resolve against this project's config — an unknown id is warned
+  about (at `add` time and at dispatch) and skipped, never fatal.
 - **webhook** works with anything that accepts a POST: Slack, Lark, Discord,
   n8n, a home-rolled endpoint. The default body is JSON
   (`{source, project, task, run…}`); `format: "text"` posts the human summary.
@@ -275,6 +281,8 @@ file permissions), and by default only **failed** runs notify:
 /remind at 15:30 check production
 /schedule add 30m check CI status
 /schedule add "0 9 * * 1-5" check CI status
+/remind in 45m review the release --to feishu --notify always
+/schedule add 30m check CI status --to feishu,mail
 /schedule list
 /schedule enable <id>
 /schedule disable <id>
@@ -293,6 +301,12 @@ whenever it contains spaces, otherwise its first field is read as the start of
 the prompt. Nicknames are `@yearly`, `@annually`, `@monthly`, `@weekly`,
 `@daily`, and `@hourly`.
 
+`/loop`, `/remind`, and `/schedule add` also accept trailing flags after the
+prompt: `--to <id,id>` routes the task's notifications to those channels, and
+`--notify always|error|never` sets its level — so
+`/remind in 45m review the release --to feishu --notify always` reaches you on
+Feishu the moment the run finishes.
+
 `/schedule open <runId>` prints the Task Session file path and suggests
 `pi --session <path>`. Task Sessions are never merged into the current session.
 `/schedule help` (or any unknown action) prints the full action list.
@@ -310,9 +324,14 @@ without deferred exposure the tool simply registers as before.
   "action": "add",
   "name": "check-ci",
   "prompt": "检查当前项目 CI 是否通过；如果失败请分析原因",
-  "schedule": { "kind": "interval", "every": "30m" }
+  "schedule": { "kind": "interval", "every": "30m" },
+  "notify": "always",
+  "notifyTo": ["feishu"]
 }
 ```
+
+`notify` sets the task's notification level and `notifyTo` routes it to named
+channels from `.agents/cron/config.json`; both are optional and independent.
 
 Deleting and clearing tasks requires interactive confirmation; creating a task does not. The `/schedule remove`, `/schedule clear`, and `/unschedule` commands ask for the same confirmation.
 

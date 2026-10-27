@@ -53,11 +53,13 @@ quickest way to see why a task did not run.
 Runs can also push notifications through `.agents/cron/config.json` channels —
 SMTP email (QQ/Foxmail-style) and webhook, including the Feishu group-bot
 format (`"format": "feishu"`; the bot's keyword must be `task`, and signature
-security is not supported) — error-only by default. First-time setup is guided:
-run `agents-cron setup-notify` with the user; it opens the mail and Feishu
-consoles, captures the SMTP 授权码 and webhook URL, writes config.json plus
-`.agents/cron/notify.env` (secrets never enter config.json), wires the shell,
-and live-tests each channel. Verify an existing setup with
+security is not supported) — error-only by default, and a task may override
+the level (`--notify always`) and route itself to specific channels
+(`--to feishu` in Pi, `--notify-to feishu,mail` on the CLI). First-time setup
+is guided: run `agents-cron setup-notify` with the user; it opens the mail
+and Feishu consoles, captures the SMTP 授权码 and webhook URL, writes
+config.json plus `.agents/cron/notify.env` (secrets never enter config.json),
+wires the shell, and live-tests each channel. Verify an existing setup with
 `agents-cron test-notify`.
 
 If `agents-cron` is not on `PATH`, call the installed binary directly:

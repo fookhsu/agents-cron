@@ -10,14 +10,17 @@ import { readOwnChangelog } from "./update-notice.ts";
 
 export function registerCommands(pi: ExtensionAPI): void {
   pi.registerCommand("loop", {
-    description: 'Create a recurring task: /loop 30m check CI, or /loop "*/5 * * * *" check CI',
+    description: 'Create a recurring task: /loop 30m check CI, or /loop "*/5 * * * *" check CI --to feishu',
     handler: async (args, ctx) => {
       await guard(ctx, async () => {
-        const match = /^\s*("[^"]*"|\S+)\s+([\s\S]+?)\s*$/.exec(args);
+        const flags = parseTrailingFlags(args);
+        const match = /^\s*("[^"]*"|\S+)\s+([\s\S]+?)\s*$/.exec(flags.rest);
         if (!match) throw new Error("Usage: /loop <duration|cron> <prompt>");
         const task = await addTask(ctx.cwd, {
           prompt: match[2],
           schedule: parseScheduleSpec(match[1]),
+          ...(flags.notify ? { notify: flags.notify } : {}),
+          ...(flags.to ? { notifyTo: flags.to } : {}),
         });
         ctx.ui.notify(`Created ${task.id}; next run ${formatDate(task.nextRunAt)}`, "info");
       });
@@ -25,13 +28,16 @@ export function registerCommands(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("remind", {
-    description: "Create a one-time task: /remind in 45m check the PR",
+    description: "Create a one-time task: /remind in 45m check the PR --to feishu --notify always",
     handler: async (args, ctx) => {
       await guard(ctx, async () => {
-        const parsed = parseReminder(args);
+        const flags = parseTrailingFlags(args);
+        const parsed = parseReminder(flags.rest);
         const task = await addTask(ctx.cwd, {
           prompt: parsed.prompt,
           schedule: { kind: "once", runAt: parsed.runAt },
+          ...(flags.notify ? { notify: flags.notify } : {}),
+          ...(flags.to ? { notifyTo: flags.to } : {}),
         });
         ctx.ui.notify(`Created ${task.id}; scheduled for ${formatDate(task.nextRunAt)}`, "info");
       });
@@ -56,9 +62,15 @@ export function registerCommands(pi: ExtensionAPI): void {
           return;
         }
         if (action === "add") {
-          const match = /^\s*add\s+("[^"]*"|\S+)\s+([\s\S]+?)\s*$/.exec(args);
+          const flags = parseTrailingFlags(args.replace(/^\s*add\s+/, ""));
+          const match = /^\s*("[^"]*"|\S+)\s+([\s\S]+?)\s*$/.exec(flags.rest);
           if (!match) throw new Error("Usage: /schedule add <duration|cron> <prompt>");
-          const task = await addTask(ctx.cwd, { prompt: match[2], schedule: parseScheduleSpec(match[1]) });
+          const task = await addTask(ctx.cwd, {
+            prompt: match[2],
+            schedule: parseScheduleSpec(match[1]),
+            ...(flags.notify ? { notify: flags.notify } : {}),
+            ...(flags.to ? { notifyTo: flags.to } : {}),
+          });
           ctx.ui.notify(`Created ${task.id}; next run ${formatDate(task.nextRunAt)}`, "info");
           return;
         }
@@ -71,7 +83,11 @@ export function registerCommands(pi: ExtensionAPI): void {
         if (action === "show") {
           const id = requireId(tokens[1], "show");
           const task = requireTask(await listTasks(ctx.cwd), id);
-          ctx.ui.notify(`${formatTask(task)}\nprompt:\n${task.prompt}`, "info");
+          const meta = [
+            task.notify ? `notify: ${task.notify}` : undefined,
+            task.notifyTo?.length ? `notify to: ${task.notifyTo.join(", ")}` : undefined,
+          ].filter(Boolean);
+          ctx.ui.notify([formatTask(task), ...meta, `prompt:\n${task.prompt}`].join("\n"), "info");
           return;
         }
         if (action === "changelog") {
@@ -132,6 +148,37 @@ export function registerCommands(pi: ExtensionAPI): void {
 
 type CommandContext = Parameters<Parameters<ExtensionAPI["registerCommand"]>[1]["handler"]>[1];
 
+type NotifyLevel = "always" | "error" | "never";
+
+type TrailingFlags = { to?: string[]; notify?: NotifyLevel; rest: string };
+
+/**
+ * Strips trailing `--to <id,id>` and `--notify <level>` flags off a command's
+ * args, in any order, so the prompt never has to carry them. Only trailing
+ * flags are recognized — a `--to` mid-prompt stays part of the prompt.
+ */
+export function parseTrailingFlags(args: string): TrailingFlags {
+  let rest = args.trim();
+  let to: string[] | undefined;
+  let notify: NotifyLevel | undefined;
+  for (;;) {
+    const match = /(?:^|\s)--(notify-to|to|notify)\s+([^\s]+)\s*$/.exec(rest);
+    if (!match) break;
+    if (match[1] === "notify") {
+      if (match[2] !== "always" && match[2] !== "error" && match[2] !== "never") {
+        throw new Error("--notify must be one of: always, error, never");
+      }
+      notify = match[2];
+    } else {
+      const ids = match[2].split(",").map((id) => id.trim()).filter(Boolean);
+      if (!ids.length) throw new Error("--to requires at least one channel id");
+      to = [...(to ?? []), ...ids];
+    }
+    rest = rest.slice(0, match.index).trimEnd();
+  }
+  return { ...(to ? { to } : {}), ...(notify ? { notify } : {}), rest };
+}
+
 const SCHEDULE_HELP = [
   "Usage: /schedule <action> [args]",
   "  list                  list tasks (default action)",
@@ -146,6 +193,9 @@ const SCHEDULE_HELP = [
   "  changelog             show the shipped changelog",
   "  clear                 delete all tasks",
   "  help                  show this help",
+  "Trailing flags on /loop, /remind, and /schedule add:",
+  "  --to <id,id>          route this task's notifications to those channels",
+  "  --notify <level>      always, error (project default), or never",
   "Related: /loop <spec> <prompt>, /remind in 45m <prompt>, /unschedule <id>",
 ].join("\n");
 

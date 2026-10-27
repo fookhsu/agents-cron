@@ -24,6 +24,8 @@ export type NewTaskInput = {
   cwd?: string;
   tools?: string[];
   notify?: "always" | "error" | "never";
+  /** Channel ids the task's runs notify; absent means every configured channel. */
+  notifyTo?: string[];
 };
 
 /** The Project View: the current project's tasks first, then every other project grouped by path. */
@@ -64,6 +66,7 @@ export async function addTask(
     ...(input.cwd ? { cwd: input.cwd } : {}),
     ...(input.tools?.length ? { tools: input.tools } : {}),
     ...(input.notify ? { notify: input.notify } : {}),
+    ...(normalizeNotifyTo(input.notifyTo) ? { notifyTo: normalizeNotifyTo(input.notifyTo) } : {}),
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };
@@ -120,4 +123,11 @@ export function requireTask(tasks: ScheduleTask[], id: string): ScheduleTask {
 function initialNextRun(schedule: ScheduleTask["schedule"], now: Date): string | undefined {
   if (schedule.kind === "once") return schedule.runAt;
   return calculateNextRun(schedule, now)?.toISOString();
+}
+
+/** Trim, drop empties, dedupe — an empty result means "no routing", same as absent. */
+function normalizeNotifyTo(ids?: string[]): string[] | undefined {
+  if (!ids?.length) return undefined;
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  return unique.length ? unique : undefined;
 }

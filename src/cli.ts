@@ -34,7 +34,7 @@ const USAGE = [
   "  setup-notify                        Interactive email/Feishu channel wizard",
   "",
   "Agents: --agent <id> selects the agent adapter — built in: pi, claude, codex (default: pi).",
-  "add options: --name --agent --model --thinking --cwd --tools a,b --notify always|error|never",
+  "add options: --name --agent --model --thinking --cwd --tools a,b --notify always|error|never --notify-to a,b",
 ].join("\n");
 
 export type CliDeps = {
@@ -80,7 +80,7 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
         return await commandShow(project, flags, id, out);
       }
       case "add":
-        return await commandAdd(project, flags, out);
+        return await commandAdd(project, flags, out, err);
       case "enable":
       case "disable": {
         const id = requireArgument(positional[0], `${command} requires a task id`);
@@ -203,8 +203,10 @@ async function commandAdd(
   project: string,
   flags: Map<string, string | boolean>,
   out: (line: string) => void,
+  err: (line: string) => void,
 ): Promise<number> {
   const prompt = requireArgument(stringFlag(flags, "prompt"), "add requires --prompt");
+  const notifyTo = notifyToFlag(flags);
   const task = await addTask(project, {
     prompt,
     schedule: scheduleFromFlags(flags),
@@ -218,7 +220,16 @@ async function commandAdd(
       .map((tool) => tool.trim())
       .filter(Boolean),
     ...(notifyFlag(flags) ? { notify: notifyFlag(flags) } : {}),
+    ...(notifyTo ? { notifyTo } : {}),
   });
+  // Catch channel typos now, not at the first 3 a.m. run: routing to an id
+  // this project never configured would silently deliver nothing.
+  if (notifyTo) {
+    const known = new Set((await loadNotifyConfig(schedulerPaths(project).dir)).channels.map((channel) => channel.id));
+    for (const id of notifyTo) {
+      if (!known.has(id)) err(`warning: no notification channel "${id}" in .agents/cron/config.json; runs will not reach it`);
+    }
+  }
   out(`Created ${task.id}; next run ${task.nextRunAt ?? "never"}`);
   return 0;
 }
@@ -247,6 +258,14 @@ function notifyFlag(flags: Map<string, string | boolean>): "always" | "error" | 
   if (value === undefined) return undefined;
   if (value === "always" || value === "error" || value === "never") return value;
   throw new Error("--notify must be one of: always, error, never");
+}
+
+/** --notify-to a,b — comma-separated channel ids; empty means "no routing". */
+function notifyToFlag(flags: Map<string, string | boolean>): string[] | undefined {
+  const value = stringFlag(flags, "notify-to");
+  if (value === undefined) return undefined;
+  const ids = [...new Set(value.split(",").map((id) => id.trim()).filter(Boolean))];
+  return ids.length ? ids : undefined;
 }
 
 /** Sends a synthetic notification through every configured channel (or one). */
@@ -479,6 +498,7 @@ function formatTaskDetail(task: ScheduleTask): string {
   if (task.cwd) lines.push(`cwd: ${task.cwd}`);
   if (task.tools?.length) lines.push(`tools: ${task.tools.join(", ")}`);
   if (task.notify) lines.push(`notify: ${task.notify}`);
+  if (task.notifyTo?.length) lines.push(`notify to: ${task.notifyTo.join(", ")}`);
   lines.push(`created: ${task.createdAt}  updated: ${task.updatedAt}`);
   lines.push("", "prompt:", task.prompt);
   return lines.join("\n");

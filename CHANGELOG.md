@@ -7,6 +7,16 @@ new one as an in-terminal notice; `/schedule changelog` shows this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Per-task notification routing: `notifyTo` names the channel ids a task
+  announces on — `/remind in 45m review --to feishu --notify always`,
+  `agents-cron add --notify-to feishu,mail`, or `notifyTo` on the
+  `schedule_task` tool. A task without routing still notifies every configured
+  channel; unknown ids warn and are skipped, never fatally
+
 ## [0.12.1] - 2026-10-27
 
 ### Fixed

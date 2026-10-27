@@ -109,3 +109,46 @@ test("ensureToolSearchActive does nothing when tool_search is not registered", (
 
   assert.equal(calls.length, 0);
 });
+
+test("schedule_task add accepts notify level and notifyTo routing", async () => {
+  // The registry is machine-global; point it at a throwaway home so the
+  // assertion never touches real tasks.
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const home = await mkdtemp(join(tmpdir(), "agents-cron-toolnotify-"));
+  const previous = process.env.AGENTS_CRON_HOME;
+  process.env.AGENTS_CRON_HOME = home;
+  const cwd = await mkdtemp(join(tmpdir(), "agents-cron-toolnotify-cwd-"));
+  try {
+    const { saveRegistry } = await import("../src/registry.ts");
+    await saveRegistry([]);
+
+    const outcome = await captureTool().execute(
+      "call",
+      {
+        action: "add",
+        prompt: "Check the CI",
+        schedule: { kind: "interval", every: "30m" },
+        notify: "always",
+        notifyTo: ["feishu"],
+      },
+      undefined,
+      undefined,
+      { cwd } as never,
+    );
+
+    assert.match(
+      outcome.content.filter((part): part is { type: "text"; text: string } => part.type === "text").map((part) => part.text).join(""),
+      /Created task_/,
+    );
+    const created = outcome.details as { notify?: string; notifyTo?: string[] };
+    assert.equal(created.notify, "always");
+    assert.deepEqual(created.notifyTo, ["feishu"]);
+  } finally {
+    if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
+    else delete process.env.AGENTS_CRON_HOME;
+    await rm(home, { recursive: true, force: true });
+    await rm(cwd, { recursive: true, force: true });
+  }
+});

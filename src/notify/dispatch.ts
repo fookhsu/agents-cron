@@ -22,6 +22,25 @@ export function notifiersFor(config: NotificationsConfig): Notifier[] {
   return notifiers;
 }
 
+/**
+ * Resolves which configured channels a task addresses: `notifyTo` filters the
+ * configured set by channel id; absent or empty means every channel. Unknown
+ * ids warn on stderr and are skipped — a typo must not silence the rest.
+ */
+export function notifiersForTask(config: NotificationsConfig, task: Pick<ScheduleTask, "notifyTo">): Notifier[] {
+  const all = notifiersFor(config);
+  const wanted = task.notifyTo;
+  if (!wanted?.length) return all;
+  const byId = new Map(all.map((notifier) => [notifier.id, notifier]));
+  const selected: Notifier[] = [];
+  for (const id of wanted) {
+    const notifier = byId.get(id);
+    if (notifier) selected.push(notifier);
+    else process.stderr.write(`[agents-cron] unknown notification channel "${id}"; skipped\n`);
+  }
+  return selected;
+}
+
 function notifierFor(channel: NotificationChannel): Notifier | undefined {
   if (channel.type === "webhook") return webhookNotifier(channel);
   if (channel.type === "email") return emailNotifier(channel);
@@ -29,9 +48,10 @@ function notifierFor(channel: NotificationChannel): Notifier | undefined {
 }
 
 /**
- * Offers one finished run to every configured channel, best effort: a level
- * check first, then all channels in parallel, and every failure is reported on
- * stderr instead of thrown — a broken webhook must never break the run itself.
+ * Offers one finished run to the channels a task addresses, best effort: a
+ * level check first, then the selected channels in parallel, and every
+ * failure is reported on stderr instead of thrown — a broken webhook must
+ * never break the run itself.
  */
 export async function dispatchNotifications(
   config: NotificationsConfig,
@@ -43,7 +63,7 @@ export async function dispatchNotifications(
   if (run.status === "running") return; // only terminal runs are announced
   if (!shouldNotify(level, run.status)) return;
 
-  const notifiers = notifiersFor(config);
+  const notifiers = notifiersForTask(config, task);
   if (notifiers.length === 0) return;
 
   const notification: RunNotification = {

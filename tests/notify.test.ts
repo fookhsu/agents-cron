@@ -195,6 +195,44 @@ test("dispatch honors a task-level notify override and never throws", async () =
   }
 });
 
+test("dispatch routes a task to only its notifyTo channels", async () => {
+  const a = await capturingServer();
+  const b = await capturingServer();
+  const config = {
+    on: "always",
+    channels: [
+      { id: "hook-a", type: "webhook", url: a.url } as WebhookChannel,
+      { id: "hook-b", type: "webhook", url: b.url } as WebhookChannel,
+    ],
+  } satisfies NotificationsConfig;
+
+  try {
+    await dispatchNotifications(config, minimalTask({ notifyTo: ["hook-a"] }), terminalRun("success"), "/proj/demo");
+    assert.equal(a.requests.length, 1);
+    assert.equal(b.requests.length, 0);
+  } finally {
+    await a.close();
+    await b.close();
+  }
+});
+
+test("an unknown notifyTo id warns; the matched channels still deliver", async () => {
+  const server = await capturingServer();
+  const config = { on: "always", channels: [{ id: "hook", type: "webhook", url: server.url }] } satisfies NotificationsConfig;
+
+  try {
+    // One match plus one typo: the match delivers, the typo is skipped, nothing throws.
+    await dispatchNotifications(config, minimalTask({ notifyTo: ["hook", "typo"] }), terminalRun("success"), "/proj/demo");
+    assert.equal(server.requests.length, 1);
+
+    // Only unknown ids: nothing delivers, and it still must not throw.
+    await dispatchNotifications(config, minimalTask({ notifyTo: ["gone"] }), terminalRun("success"), "/proj/demo");
+    assert.equal(server.requests.length, 1);
+  } finally {
+    await server.close();
+  }
+});
+
 test("a failing run notifies the configured webhook end to end", async () => {
   const project = await mkdtemp(join(tmpdir(), "agents-cron-proj-"));
   const paths = schedulerPaths(project);

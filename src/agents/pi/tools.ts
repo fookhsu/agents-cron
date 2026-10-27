@@ -60,6 +60,14 @@ export function registerTools(pi: ExtensionAPI): void {
       thinking: Type.Optional(Type.String()),
       cwd: Type.Optional(Type.String()),
       tools: Type.Optional(Type.Array(Type.String())),
+      notify: Type.Optional(
+        StringEnum(["always", "error", "never"] as const, { description: "When this task's runs produce notifications; overrides the project default." }),
+      ),
+      notifyTo: Type.Optional(
+        Type.Array(Type.String(), {
+          description: "Channel ids from .agents/cron/config.json to route this task's notifications to; omit to notify every configured channel.",
+        }),
+      ),
       schedule: Type.Optional(scheduleSchema),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -74,6 +82,8 @@ export function registerTools(pi: ExtensionAPI): void {
           thinking: params.thinking,
           cwd: params.cwd,
           tools: params.tools,
+          ...(params.notify ? { notify: params.notify } : {}),
+          ...(params.notifyTo?.length ? { notifyTo: params.notifyTo } : {}),
         });
         return result(`Created ${task.id}; next run ${task.nextRunAt ?? "never"}`, task);
       }

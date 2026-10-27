@@ -406,3 +406,31 @@ test("migrate-sessions --dry-run changes nothing", async () => {
     await rm(store, { recursive: true, force: true });
   }
 });
+
+test("add --notify-to routes the task and show prints the routing", async () => {
+  const dir = await project();
+  const { deps, stdout } = capture(dir, new FakeAgent());
+  assert.equal(
+    await main(["add", "--prompt", "Check CI", "--every", "30m", "--notify", "always", "--notify-to", "feishu,mail"], deps),
+    0,
+  );
+  const id = /Created (task_[^\s;]+)/.exec(stdout.join("\n"))![1];
+
+  stdout.length = 0;
+  assert.equal(await main(["show", id, "--json"], deps), 0);
+  const task = JSON.parse(stdout.join("\n"));
+  assert.deepEqual(task.notifyTo, ["feishu", "mail"]);
+  assert.equal(task.notify, "always");
+
+  stdout.length = 0;
+  assert.equal(await main(["show", id], deps), 0);
+  assert.match(stdout.join("\n"), /notify: always/);
+  assert.match(stdout.join("\n"), /notify to: feishu, mail/);
+});
+
+test("add warns when --notify-to names a channel the project has not configured", async () => {
+  const dir = await project();
+  const { deps, stdout, stderr } = capture(dir, new FakeAgent());
+  assert.equal(await main(["add", "--prompt", "Check CI", "--every", "30m", "--notify-to", "ghost"], deps), 0);
+  assert.match(stderr.join("\n"), /no notification channel "ghost" in/);
+});

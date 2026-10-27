@@ -119,3 +119,81 @@ test("/schedule with no args defaults to listing tasks", async () => {
   assert.equal(notices[0].level, "info");
   assert.match(notices[0].message, /task_|No scheduled tasks\./);
 });
+
+test("/remind routes notifications with trailing --to and --notify flags", async () => {
+  // The registry is machine-global; point it at a throwaway home so the
+  // assertion never touches real tasks.
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const home = await mkdtemp(join(tmpdir(), "agents-cron-remind-"));
+  const previous = process.env.AGENTS_CRON_HOME;
+  process.env.AGENTS_CRON_HOME = home;
+  const { commands } = stubPi();
+  const { ctx, notices } = stubCtx();
+  try {
+    const { saveRegistry } = await import("../src/registry.ts");
+    await saveRegistry([]);
+    await commands.get("remind")!.handler("in 45m check the PR --to feishu,mail --notify always", ctx);
+
+    const { listTasks } = await import("../src/task-service.ts");
+    const [task] = await listTasks((ctx as { cwd: string }).cwd);
+    assert.ok(task, "the reminder created a task");
+    assert.equal(task.prompt, "check the PR"); // flags stripped from the prompt
+    assert.equal(task.schedule.kind, "once");
+    assert.deepEqual(task.notifyTo, ["feishu", "mail"]);
+    assert.equal(task.notify, "always");
+    assert.match(notices[0].message, /Created task_/);
+  } finally {
+    if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
+    else delete process.env.AGENTS_CRON_HOME;
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("/loop routes notifications with a trailing --to flag", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const home = await mkdtemp(join(tmpdir(), "agents-cron-loop-"));
+  const previous = process.env.AGENTS_CRON_HOME;
+  process.env.AGENTS_CRON_HOME = home;
+  const { commands } = stubPi();
+  const { ctx } = stubCtx();
+  try {
+    const { saveRegistry } = await import("../src/registry.ts");
+    await saveRegistry([]);
+    await commands.get("loop")!.handler("30m check CI --to feishu", ctx);
+
+    const { listTasks } = await import("../src/task-service.ts");
+    const [task] = await listTasks((ctx as { cwd: string }).cwd);
+    assert.ok(task, "the loop created a task");
+    assert.equal(task.prompt, "check CI");
+    assert.equal(task.schedule.kind, "interval");
+    assert.deepEqual(task.notifyTo, ["feishu"]);
+  } finally {
+    if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
+    else delete process.env.AGENTS_CRON_HOME;
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("an invalid trailing --notify value errors without creating a task", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const home = await mkdtemp(join(tmpdir(), "agents-cron-badflag-"));
+  const previous = process.env.AGENTS_CRON_HOME;
+  process.env.AGENTS_CRON_HOME = home;
+  const { commands } = stubPi();
+  const { ctx, notices } = stubCtx();
+  try {
+    const { saveRegistry } = await import("../src/registry.ts");
+    await saveRegistry([]);
+    await commands.get("remind")!.handler("in 5m x --notify sometimes", ctx);
+
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0].level, "error");
+    assert.match(notices[0].message, /--notify must be one of: always, error, never/);
+    const { loadRegistry } = await import("../src/registry.ts");
+    assert.deepEqual(await loadRegistry(), []);
+  } finally {
+    if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
+    else delete process.env.AGENTS_CRON_HOME;
+    await rm(home, { recursive: true, force: true });
+  }
+});

@@ -47,6 +47,26 @@ test("enable, disable, and remove act on any project's task from any directory",
   }
 });
 
+test("addTask persists notifyTo trimmed and deduplicated; absent stays absent", async () => {
+  const restore = await withRegistryHome();
+  try {
+    const owner = await project();
+    const routed = await addTask(
+      owner,
+      { prompt: "p", schedule: { kind: "interval", every: "5m" }, notifyTo: [" feishu ", "mail", "feishu", ""] },
+      NOW,
+    );
+    assert.deepEqual(routed.notifyTo, ["feishu", "mail"]);
+    assert.deepEqual((await loadRegistry())[0].notifyTo, ["feishu", "mail"]);
+
+    // An empty list is the same as no routing: every configured channel.
+    const bare = await addTask(owner, { prompt: "p", schedule: { kind: "interval", every: "5m" }, notifyTo: [] }, NOW);
+    assert.equal("notifyTo" in bare, false);
+  } finally {
+    restore();
+  }
+});
+
 test("any task command on a legacy project imports its store into the registry", async () => {
   const restore = await withRegistryHome();
   try {

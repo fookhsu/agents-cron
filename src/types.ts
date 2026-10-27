@@ -21,6 +21,8 @@ export type ScheduleTask = {
   tools?: string[];
   /** When this task's runs produce notifications; overrides the project default. */
   notify?: "always" | "error" | "never";
+  /** Channel ids this task's runs notify; absent or empty means every configured channel. */
+  notifyTo?: string[];
   /** Registry state: the most recent run of any trigger. */
   lastRunAt?: string;
   lastStatus?: RunStatus;
