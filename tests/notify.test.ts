@@ -236,6 +236,32 @@ test("an unknown notifyTo id warns; the matched channels still deliver", async (
   }
 });
 
+test("a run worth announcing with no channels configured gets one stderr reminder, not an error", async () => {
+  const stderr = captureStderr();
+  try {
+    const unconfigured = { on: "error", channels: [] } satisfies NotificationsConfig;
+
+    // An error run nobody can announce: remind on stderr, never throw.
+    await dispatchNotifications(unconfigured, minimalTask({}), terminalRun("error"), "/proj/demo");
+    assert.match(stderr.text(), /no notification channels configured; not announcing error run of task task_1/);
+    assert.match(stderr.text(), /setup-notify/);
+
+    // A success run at the default level is not worth announcing: no second reminder.
+    await dispatchNotifications(unconfigured, minimalTask({}), terminalRun("success"), "/proj/demo");
+
+    // Channels exist but routing matches none: the per-id warnings explain,
+    // and the unconfigured line must not blame a configured project.
+    const configured = { on: "always", channels: [{ id: "hook", type: "webhook", url: "https://example.test/hook" }] } satisfies NotificationsConfig;
+    await dispatchNotifications(configured, minimalTask({ notifyTo: ["gone"] }), terminalRun("success"), "/proj/demo");
+    assert.match(stderr.text(), /unknown notification channel "gone"/);
+
+    const reminders = stderr.text().match(/no notification channels configured/g) ?? [];
+    assert.equal(reminders.length, 1);
+  } finally {
+    stderr.restore();
+  }
+});
+
 test("a failing run notifies the configured webhook end to end", async () => {
   const project = await mkdtemp(join(tmpdir(), "agents-cron-proj-"));
   const paths = schedulerPaths(project);
@@ -290,6 +316,17 @@ function sampleNotification(status: RunNotification["status"]): RunNotification 
     startedAt: "2026-10-18T09:00:00.000Z",
     finishedAt: "2026-10-18T09:01:00.000Z",
   };
+}
+
+/** Intercepts real process.stderr — dispatch warnings bypass any CLI err sink. */
+function captureStderr(): { text: () => string; restore: () => void } {
+  const chunks: string[] = [];
+  const original = process.stderr.write;
+  process.stderr.write = ((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  return { text: () => chunks.join(""), restore: () => void (process.stderr.write = original) };
 }
 
 function terminalRun(status: RunRecord["status"]): RunRecord {

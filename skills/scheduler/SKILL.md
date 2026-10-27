@@ -64,7 +64,8 @@ that names no channels of its own. First-time setup is guided: run
 consoles, captures the SMTP 授权码 and webhook URL, writes config.json plus
 `.agents/cron/notify.env` (secrets never enter config.json), wires the shell,
 and live-tests each channel. Verify an existing setup with
-`agents-cron test-notify`.
+`agents-cron test-notify`. Channels are never forced: a run worth announcing
+with none configured only gets a one-line stderr reminder (in the cron log).
 
 When the user wants to perceive a task's output, resolve its notification
 before creating it: read the task project's `.agents/cron/config.json`; if

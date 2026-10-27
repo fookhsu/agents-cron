@@ -260,6 +260,10 @@ file permissions), and by default only **failed** runs notify:
   trailing flag: `/remind in 45m review the release --to feishu --notify always`.
   Channel ids resolve against this project's config — an unknown id is warned
   about (at `add` time and at dispatch) and skipped, never fatal.
+- Channels are optional: a run that would announce with none configured writes
+  one reminder to stderr (which lands in the cron log) — nothing fails, no
+  setup is forced. `agents-cron setup-notify` adds channels whenever you want
+  them.
 - **webhook** works with anything that accepts a POST: Slack, Lark, Discord,
   n8n, a home-rolled endpoint. The default body is JSON
   (`{source, project, task, run…}`); `format: "text"` posts the human summary.

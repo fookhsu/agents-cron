@@ -65,6 +65,12 @@ export async function dispatchNotifications(
   const level = task.notify ?? config.on;
   if (run.status === "running") return; // only terminal runs are announced
   if (!shouldNotify(level, run.status)) return;
+  if (config.channels.length === 0) {
+    // Unconfigured is a valid state, not an error: remind where the announcement
+    // would have gone (cron log / terminal stderr) and move on.
+    process.stderr.write(`[agents-cron] no notification channels configured; not announcing ${run.status} run of task ${task.id} (see agents-cron setup-notify)\n`);
+    return;
+  }
 
   const notifiers = notifiersForTask(config, task.notifyTo ?? config.defaultTo);
   if (notifiers.length === 0) return;
