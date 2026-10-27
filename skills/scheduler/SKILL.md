@@ -77,8 +77,9 @@ Tasks created so the user can see the result should carry `--notify always`
 chosen routing back to the user with the task id and next run time.
 
 If `agents-cron` is not on `PATH`, call the installed binary directly:
-`"$HOME/.pi/agent/npm/node_modules/.bin/agents-cron"` for a global install or
-`.pi/npm/node_modules/.bin/agents-cron` for a project install.
+`"$HOME/.pi/agent/npm/node_modules/.bin/agents-cron"` for a global install,
+`.pi/npm/node_modules/.bin/agents-cron` for a project install, or
+`node <repo>/bin/agents-cron.mjs` from a repo-source install.
 
 ## Agents
 
