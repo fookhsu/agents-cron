@@ -336,6 +336,35 @@ test("a feishu webhook posts the Feishu bot msg_type/content body", async () => 
   }
 });
 
+test("a config-declared feishu webhook delivers the Feishu bot body", async () => {
+  const server = await capturingServer();
+  const dir = await mkdtemp(join(tmpdir(), "agents-cron-notify-"));
+  await writeFile(
+    join(dir, "config.json"),
+    JSON.stringify({
+      version: 1,
+      notifications: {
+        on: "always",
+        channels: [{ id: "feishu", type: "webhook", url: server.url, format: "feishu" }],
+      },
+    }),
+  );
+
+  try {
+    // The full public path: the file as the setup wizard writes it, loaded
+    // and dispatched — not a hand-built channel object.
+    const config = await loadNotifyConfig(dir);
+    await dispatchNotifications(config, minimalTask({}), terminalRun("success"), "/proj/demo");
+
+    const [request] = server.requests;
+    const payload = JSON.parse(request.body);
+    assert.equal(payload.msg_type, "text");
+    assert.ok(payload.content.text.startsWith("✓ nightly digest success"));
+  } finally {
+    await server.close();
+  }
+});
+
 test("a feishu webhook fails loudly when the bot rejects the message", async () => {
   let call = 0;
   const server: Server = createServer((req, res) => {
@@ -365,6 +394,33 @@ test("a feishu webhook fails loudly when the bot rejects the message", async () 
     server.closeAllConnections?.();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+});
+
+test("webhook formats parse: text and feishu survive, json and junk collapse to the absent default", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "agents-cron-notify-"));
+  await writeFile(
+    join(dir, "config.json"),
+    JSON.stringify({
+      version: 1,
+      notifications: {
+        channels: [
+          { id: "feishu", type: "webhook", url: "https://example.test/f", format: "feishu" },
+          { id: "plain", type: "webhook", url: "https://example.test/t", format: "text" },
+          { id: "explicit-json", type: "webhook", url: "https://example.test/j", format: "json" },
+          { id: "no-format", type: "webhook", url: "https://example.test/n" },
+          { id: "junk", type: "webhook", url: "https://example.test/x", format: 42 },
+        ],
+      },
+    }),
+  );
+  const config = await loadNotifyConfig(dir);
+  assert.deepEqual(config.channels, [
+    { id: "feishu", type: "webhook", url: "https://example.test/f", format: "feishu" },
+    { id: "plain", type: "webhook", url: "https://example.test/t", format: "text" },
+    { id: "explicit-json", type: "webhook", url: "https://example.test/j" },
+    { id: "no-format", type: "webhook", url: "https://example.test/n" },
+    { id: "junk", type: "webhook", url: "https://example.test/x" }, // junk degrades to the json default
+  ]);
 });
 
 test("a system channel parses with its optional sound", async () => {

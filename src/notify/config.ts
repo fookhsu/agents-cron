@@ -60,7 +60,7 @@ function asChannel(entry: unknown): NotificationChannel | undefined {
         ? (c.headers as Record<string, string>)
         : undefined;
     const format = c.format === "text" || c.format === "feishu" ? c.format : "json";
-    return { id: c.id, type: "webhook", url: c.url, ...(headers ? { headers } : {}), ...(format === "text" ? { format } : {}) } satisfies WebhookChannel;
+    return { id: c.id, type: "webhook", url: c.url, ...(headers ? { headers } : {}), ...(format !== "json" ? { format } : {}) } satisfies WebhookChannel;
   }
 
   if (c.type === "email") {

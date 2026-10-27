@@ -12,7 +12,6 @@ export type WebhookChannel = {
   url: string;
   /** Extra request headers, e.g. `{"Authorization": "Bearer …"}`. */
   headers?: Record<string, string>;
-  /** `json` (default) posts a JSON document; `text` posts the human summary. */
   /** json (default) posts the raw notification; text posts plain text; feishu posts the Feishu bot body. */
   format?: "json" | "text" | "feishu";
 };

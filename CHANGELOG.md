@@ -24,6 +24,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
   channel; unknown ids warn at creation (from every creator — CLI, Pi commands,
   and the tool alike) and are skipped at dispatch, never fatally
 
+### Fixed
+
+- A config-declared `"format": "feishu"` webhook was silently downgraded to
+  the generic JSON body at load, so Feishu bots rejected every delivery;
+  the setup wizard's own output hit this. `text` and `feishu` now both
+  survive loading
+
 ## [0.12.1] - 2026-10-27
 
 ### Fixed
