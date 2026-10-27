@@ -1,5 +1,7 @@
 import { resolve } from "node:path";
 import { importLegacyStore } from "./migration.ts";
+import { loadNotifyConfig } from "./notify/config.ts";
+import { schedulerPaths } from "./paths.ts";
 import { loadRegistry, updateRegistry } from "./registry.ts";
 import { createTaskId } from "./runs.ts";
 import { calculateNextRun, parseScheduleInput, type ScheduleInput } from "./scheduling.ts";
@@ -52,6 +54,8 @@ export async function addTask(
   if (!prompt) throw new Error("Task prompt must not be empty");
 
   const schedule = parseScheduleInput(input.schedule);
+  const notifyTo = normalizeNotifyTo(input.notifyTo);
+  if (notifyTo) await warnUnknownChannels(projectDir, notifyTo);
   const task: ScheduleTask = {
     id: createTaskId(),
     projectDir: resolve(projectDir),
@@ -66,7 +70,7 @@ export async function addTask(
     ...(input.cwd ? { cwd: input.cwd } : {}),
     ...(input.tools?.length ? { tools: input.tools } : {}),
     ...(input.notify ? { notify: input.notify } : {}),
-    ...(normalizeNotifyTo(input.notifyTo) ? { notifyTo: normalizeNotifyTo(input.notifyTo) } : {}),
+    ...(notifyTo ? { notifyTo } : {}),
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };
@@ -130,4 +134,19 @@ function normalizeNotifyTo(ids?: string[]): string[] | undefined {
   if (!ids?.length) return undefined;
   const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
   return unique.length ? unique : undefined;
+}
+
+/**
+ * Catch channel typos now, not at the first 3 a.m. run: routing to an id
+ * this project never configured would silently deliver nothing. Every
+ * creator shares this check through addTask (CLI, Pi commands, the tool).
+ */
+async function warnUnknownChannels(projectDir: string, ids: string[]): Promise<void> {
+  const config = await loadNotifyConfig(schedulerPaths(projectDir).dir);
+  const known = new Set(config.channels.map((channel) => channel.id));
+  for (const id of ids) {
+    if (!known.has(id)) {
+      process.stderr.write(`[agents-cron] no notification channel "${id}" in .agents/cron/config.json; runs will not reach it\n`);
+    }
+  }
 }

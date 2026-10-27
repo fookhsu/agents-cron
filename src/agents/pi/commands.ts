@@ -195,6 +195,7 @@ const SCHEDULE_HELP = [
   "  help                  show this help",
   "Trailing flags on /loop, /remind, and /schedule add:",
   "  --to <id,id>          route this task's notifications to those channels",
+  "  --notify-to <id,id>   alias of --to (the CLI spelling)",
   "  --notify <level>      always, error (project default), or never",
   "Related: /loop <spec> <prompt>, /remind in 45m <prompt>, /unschedule <id>",
 ].join("\n");

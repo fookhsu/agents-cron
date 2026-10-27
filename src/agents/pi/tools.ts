@@ -48,6 +48,7 @@ export function registerTools(pi: ExtensionAPI): void {
       "Scheduled tasks are project-scoped and run in isolated Task Sessions, not in the user's session.",
       "Do not create duplicate tasks when an existing task already represents the same request.",
       "Only create a task once the user has expressed its timing (a date/time, an interval, or a cron expression); if the timing is missing or ambiguous, ask the user to clarify — never guess a schedule.",
+      "When the user wants to perceive a task's output, resolve its notification before creating it: route only to channel ids that exist in the project's .agents/cron/config.json, and set the level with notify.",
       "After creating a task, repeat its id and next run time back to the user so they can verify or undo it.",
     ],
     parameters: Type.Object({

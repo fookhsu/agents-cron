@@ -430,7 +430,19 @@ test("add --notify-to routes the task and show prints the routing", async () => 
 
 test("add warns when --notify-to names a channel the project has not configured", async () => {
   const dir = await project();
-  const { deps, stdout, stderr } = capture(dir, new FakeAgent());
-  assert.equal(await main(["add", "--prompt", "Check CI", "--every", "30m", "--notify-to", "ghost"], deps), 0);
-  assert.match(stderr.join("\n"), /no notification channel "ghost" in/);
+  const { deps, stdout } = capture(dir, new FakeAgent());
+  // The warning now comes from addTask (shared by every creator) on real stderr.
+  const chunks: string[] = [];
+  const original = process.stderr.write;
+  process.stderr.write = ((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    assert.equal(await main(["add", "--prompt", "Check CI", "--every", "30m", "--notify-to", "ghost"], deps), 0);
+  } finally {
+    process.stderr.write = original;
+  }
+  assert.match(stdout.join("\n"), /Created task_/);
+  assert.match(chunks.join(""), /no notification channel "ghost" in/);
 });

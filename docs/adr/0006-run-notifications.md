@@ -47,3 +47,22 @@ Notifications are the second adapter family, symmetric to agent adapters:
 - The run record stays notification-unaware in v1; if "did it notify?" needs to
   be answerable from the dashboard later, add a `notified` field then — not
   speculatively now.
+
+## Amendment (2026-10-27)
+
+Two commits (`9637204`, `f10544a`) extended the Decision without changing its
+shape:
+
+- A third channel type, `system`, joined `webhook` and `email`: desktop
+  notifications via macOS Notification Center (`osascript`) or Linux
+  `notify-send`. It followed the Consequences rule exactly — one file
+  (`src/notify/system.ts`) plus one branch in `notifierFor`.
+- Routing became a second dimension, symmetric to severity: the project config
+  may set `notifications.defaultTo`, a task may set `notifyTo`, and dispatch
+  resolves `task.notifyTo ?? config.defaultTo` — falling through to every
+  configured channel when neither names one, exactly like
+  `task.notify ?? config.on`.
+- Unknown channel ids warn on stderr and are skipped at dispatch, never
+  fatally; `addTask` repeats the same warning at creation time so every
+  creator (CLI, Pi commands, the `schedule_task` tool) catches typos before
+  the first 3 a.m. run.

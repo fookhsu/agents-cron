@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addTask, listTasks, removeTask, setTaskEnabled } from "../src/task-service.ts";
@@ -24,6 +24,17 @@ async function withRegistryHome(): Promise<() => void> {
 
 async function project(): Promise<string> {
   return mkdtemp(join(tmpdir(), "agents-cron-proj-"));
+}
+
+/** Intercepts real process.stderr — library warnings bypass the CLI's err sink. */
+function captureStderr(): { text: () => string; restore: () => void } {
+  const chunks: string[] = [];
+  const original = process.stderr.write;
+  process.stderr.write = ((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  return { text: () => chunks.join(""), restore: () => void (process.stderr.write = original) };
 }
 
 const NOW = new Date("2026-10-22T09:00:00.000Z");
@@ -62,6 +73,52 @@ test("addTask persists notifyTo trimmed and deduplicated; absent stays absent", 
     // An empty list is the same as no routing: every configured channel.
     const bare = await addTask(owner, { prompt: "p", schedule: { kind: "interval", every: "5m" }, notifyTo: [] }, NOW);
     assert.equal("notifyTo" in bare, false);
+  } finally {
+    restore();
+  }
+});
+
+test("addTask warns on stderr when notifyTo names ids the project never configured", async () => {
+  const restore = await withRegistryHome();
+  try {
+    const owner = await project();
+    const dir = schedulerPaths(owner).dir;
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "config.json"),
+      JSON.stringify({ notifications: { channels: [{ id: "hook-a", type: "webhook", url: "https://example.test/hook" }] } }),
+    );
+
+    const stderr = captureStderr();
+    try {
+      const task = await addTask(
+        owner,
+        { prompt: "p", schedule: { kind: "interval", every: "5m" }, notifyTo: ["hook-a", "typo"] },
+        NOW,
+      );
+      // A warning, not a rejection: the routing is still recorded.
+      assert.deepEqual(task.notifyTo, ["hook-a", "typo"]);
+    } finally {
+      stderr.restore();
+    }
+    assert.match(stderr.text(), /no notification channel "typo"/);
+    assert.doesNotMatch(stderr.text(), /"hook-a"/);
+  } finally {
+    restore();
+  }
+});
+
+test("addTask warns for every routed id when the project has no channels configured", async () => {
+  const restore = await withRegistryHome();
+  try {
+    const owner = await project(); // no .agents/cron/config.json at all
+    const stderr = captureStderr();
+    try {
+      await addTask(owner, { prompt: "p", schedule: { kind: "interval", every: "5m" }, notifyTo: ["mac"] }, NOW);
+    } finally {
+      stderr.restore();
+    }
+    assert.match(stderr.text(), /no notification channel "mac"/);
   } finally {
     restore();
   }

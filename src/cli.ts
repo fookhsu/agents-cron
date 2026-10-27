@@ -222,14 +222,6 @@ async function commandAdd(
     ...(notifyFlag(flags) ? { notify: notifyFlag(flags) } : {}),
     ...(notifyTo ? { notifyTo } : {}),
   });
-  // Catch channel typos now, not at the first 3 a.m. run: routing to an id
-  // this project never configured would silently deliver nothing.
-  if (notifyTo) {
-    const known = new Set((await loadNotifyConfig(schedulerPaths(project).dir)).channels.map((channel) => channel.id));
-    for (const id of notifyTo) {
-      if (!known.has(id)) err(`warning: no notification channel "${id}" in .agents/cron/config.json; runs will not reach it`);
-    }
-  }
   out(`Created ${task.id}; next run ${task.nextRunAt ?? "never"}`);
   return 0;
 }

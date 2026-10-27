@@ -140,6 +140,7 @@ the project, like all artifacts).
       "cwd": "/home/edy/work/agents-cron/packages/app",
       "tools": ["read", "bash"],
       "notify": "error",
+      "notifyTo": ["feishu"],
       "lastRunAt": "2026-10-22T03:00:41.000Z",
       "lastStatus": "success",
       "successCount": 42,
@@ -160,8 +161,12 @@ Field notes:
   `projectDir`. Never used to locate state.
 - `lastRunAt` / `lastStatus` / `successCount` / `errorCount` / `missedCount`
   (new): registry state. `lastStatus` uses the existing `RunStatus` values.
+- `notifyTo` (optional): channel ids from the project's notification config
+  that this task's runs announce on; absent means every configured channel.
+  Unknown ids warn (at `add` and at dispatch) and are skipped.
 - All other fields are unchanged from v1. Only `projectDir` and the five state
-  fields are new; `version: 2` gates the required `projectDir`.
+  fields are new; `version: 2` gates the required `projectDir`. (`notifyTo`
+  arrived after v2 and is optional, so existing registries need no migration.)
 - Permissions stay 0600 like every other scheduler file.
 
 ### Project store: `<project>/.agents/cron/` (artifacts only)

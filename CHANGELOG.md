@@ -21,7 +21,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   announces on — `/remind in 45m review --to feishu --notify always`,
   `agents-cron add --notify-to feishu,mail`, or `notifyTo` on the
   `schedule_task` tool. A task without routing still notifies every configured
-  channel; unknown ids warn and are skipped, never fatally
+  channel; unknown ids warn at creation (from every creator — CLI, Pi commands,
+  and the tool alike) and are skipped at dispatch, never fatally
 
 ## [0.12.1] - 2026-10-27
 
