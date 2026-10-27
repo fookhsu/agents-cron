@@ -11,9 +11,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- Duration parse errors and the `/remind` usage line now name the accepted
-  syntax — a number plus a unit (`30s`, `5m`, `2h`, `1d`) — instead of a bare
-  "Usage: …" that left the unit guessing
+- Usage and parse errors now teach the accepted syntax instead of leaving it
+  to guesswork: durations name their units (`30s`, `5m`, `2h`, `1d`) in the
+  `/remind`, `/loop`, and `/schedule add` usage lines, a bad cron expression
+  shows a field example (`"0 9 * * 1-5"`), a bad `--at`/`runAt` shows an ISO
+  8601 sample, and a schedule-less `add` spells out all three forms
 
 ## [0.13.1] - 2026-10-28
 

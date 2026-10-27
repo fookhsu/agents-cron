@@ -16,7 +16,11 @@ export function registerCommands(pi: ExtensionAPI): void {
       await guard(ctx, async () => {
         const flags = parseTrailingFlags(args);
         const match = /^\s*("[^"]*"|\S+)\s+([\s\S]+?)\s*$/.exec(flags.rest);
-        if (!match) throw new Error("Usage: /loop <duration|cron> <prompt>");
+        if (!match) {
+          throw new Error(
+            'Usage: /loop <duration|cron> <prompt> — duration is a number + unit (30s, 5m, 2h, 1d); cron is quoted like "*/5 * * * *" or a nickname like @daily',
+          );
+        }
         const task = await addTask(ctx.cwd, {
           prompt: match[2],
           schedule: parseScheduleSpec(match[1]),
@@ -65,7 +69,11 @@ export function registerCommands(pi: ExtensionAPI): void {
         if (action === "add") {
           const flags = parseTrailingFlags(args.replace(/^\s*add\s+/, ""));
           const match = /^\s*("[^"]*"|\S+)\s+([\s\S]+?)\s*$/.exec(flags.rest);
-          if (!match) throw new Error("Usage: /schedule add <duration|cron> <prompt>");
+          if (!match) {
+            throw new Error(
+              'Usage: /schedule add <duration|cron> <prompt> — duration is a number + unit (30s, 5m, 2h, 1d); cron is quoted like "*/5 * * * *" or a nickname like @daily',
+            );
+          }
           const task = await addTask(ctx.cwd, {
             prompt: match[2],
             schedule: parseScheduleSpec(match[1]),

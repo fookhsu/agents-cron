@@ -80,6 +80,21 @@ test("/remind usage errors teach the duration syntax", async () => {
   assert.match(notices[1].message, /30s, 5m, 2h, 1d/);
 });
 
+test("/loop and /schedule add usage errors teach the schedule syntax", async () => {
+  const { commands } = stubPi();
+  const { ctx, notices } = stubCtx();
+
+  await commands.get("loop")!.handler("", ctx);
+  assert.equal(notices[0].level, "error");
+  assert.match(notices[0].message, /Usage: \/loop <duration\|cron> <prompt>/);
+  assert.match(notices[0].message, /30s, 5m, 2h, 1d/);
+  assert.match(notices[0].message, /@daily/);
+
+  await commands.get("schedule")!.handler("add", ctx);
+  assert.match(notices[1].message, /Usage: \/schedule add <duration\|cron> <prompt>/);
+  assert.match(notices[1].message, /30s, 5m, 2h, 1d/);
+});
+
 test("a known action without an id still asks for the id", async () => {
   const { commands } = stubPi();
   const { ctx, notices } = stubCtx();

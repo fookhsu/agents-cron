@@ -79,13 +79,13 @@ export function normalizeCronExpression(expression: string): string {
   const fields = trimmed.split(" ");
   if (fields.length === 5) return `0 ${fields.join(" ")}`;
   if (fields.length === 6) return fields.join(" ");
-  throw new Error("Cron expression must be 5 or 6 fields, or a nickname such as @daily");
+  throw new Error('Cron expression must be 5 or 6 fields — e.g. "0 9 * * 1-5" (min hour day month weekday), seconds field optional — or a nickname such as @daily');
 }
 
 export function parseScheduleInput(input: ScheduleInput): ScheduleDefinition {
   if (input.kind === "once") {
     const date = new Date(input.runAt);
-    if (Number.isNaN(date.getTime())) throw new Error(`Invalid runAt: ${input.runAt}`);
+    if (Number.isNaN(date.getTime())) throw new Error(`Invalid runAt: ${input.runAt} — expected an ISO 8601 timestamp like 2026-10-29T09:00:00Z`);
     return { kind: "once", runAt: date.toISOString() };
   }
 

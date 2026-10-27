@@ -435,7 +435,7 @@ function scheduleFromFlags(flags: Map<string, string | boolean>): ScheduleInput 
   const every = stringFlag(flags, "every");
   const cron = stringFlag(flags, "cron");
   const chosen = [at, every, cron].filter(Boolean).length;
-  if (chosen !== 1) throw new Error("add requires exactly one of --at, --every, or --cron");
+  if (chosen !== 1) throw new Error('add requires exactly one of --at, --every, or --cron — e.g. --every 45m, --at 2026-10-29T09:00:00Z, or --cron "0 9 * * 1"');
   if (at) return { kind: "once", runAt: at };
   if (every) return { kind: "interval", every };
   return { kind: "cron", expression: cron!, timezone: stringFlag(flags, "timezone") };

@@ -87,6 +87,15 @@ test("lists an empty project without failing", async () => {
   assert.match(stdout.join("\n"), /No scheduled tasks/);
 });
 
+test("add without a schedule flag teaches the three forms", async () => {
+  const dir = await project();
+  const { deps, stderr } = capture(dir, new FakeAgent());
+  assert.equal(await main(["add", "--prompt", "x"], deps), 2);
+  const text = stderr.join("\n");
+  assert.match(text, /--every 45m/);
+  assert.match(text, /--cron "0 9 \* \* 1"/);
+});
+
 test("adds a task and lists it as JSON", async () => {
   const dir = await project();
   const { deps, stdout } = capture(dir, new FakeAgent());
