@@ -5,6 +5,9 @@
  * configured channels are offered a notification, best effort.
  */
 
+/** Identifies one configured channel — the `id` of a `channels[]` entry; tasks route by it. */
+export type ChannelId = string;
+
 /** Posts the run to an HTTP endpoint (Slack, Lark, Discord, n8n, …). */
 export type WebhookChannel = {
   id: string;
@@ -52,7 +55,7 @@ export type NotificationsConfig = {
   /** Project-wide default; a task's `notify` field overrides it. */
   on: NotifyLevel;
   /** Project-wide default routing; a task's `notifyTo` field overrides it, and absent routing means every channel. */
-  defaultTo?: string[];
+  defaultTo?: ChannelId[];
   channels: NotificationChannel[];
 };
 

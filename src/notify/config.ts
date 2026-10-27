@@ -1,9 +1,20 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { EmailChannel, NotificationChannel, NotificationsConfig, NotifyLevel, SystemChannel, WebhookChannel } from "./types.ts";
+import type { ChannelId, EmailChannel, NotificationChannel, NotificationsConfig, NotifyLevel, SystemChannel, WebhookChannel } from "./types.ts";
 
 /** The default: cron only interrupts you when something actually broke. */
 export const DEFAULT_NOTIFY_LEVEL: NotifyLevel = "error";
+
+/**
+ * Trim, drop empties, dedupe — an empty result means "no routing", same as
+ * absent. The one definition shared by config parsing, task input, and the
+ * `--notify-to` flag.
+ */
+export function normalizeChannelIds(ids?: string[]): ChannelId[] | undefined {
+  if (!ids?.length) return undefined;
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  return unique.length ? unique : undefined;
+}
 
 /**
  * Reads `.agents/cron/config.json`. The file is optional and user-authored:
@@ -92,10 +103,9 @@ function asChannel(entry: unknown): NotificationChannel | undefined {
 }
 
 /** A non-empty list of non-empty strings, or undefined. */
-function asChannelIds(value: unknown): string[] | undefined {
+function asChannelIds(value: unknown): ChannelId[] | undefined {
   if (!Array.isArray(value)) return undefined;
-  const ids = value.filter((id): id is string => typeof id === "string" && !!id.trim()).map((id) => id.trim());
-  return ids.length ? [...new Set(ids)] : undefined;
+  return normalizeChannelIds(value.filter((id): id is string => typeof id === "string"));
 }
 
 function isNotifyLevel(value: unknown): value is NotifyLevel {

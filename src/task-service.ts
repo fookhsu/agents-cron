@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { importLegacyStore } from "./migration.ts";
-import { loadNotifyConfig } from "./notify/config.ts";
+import { loadNotifyConfig, normalizeChannelIds } from "./notify/config.ts";
+import type { ChannelId } from "./notify/types.ts";
 import { schedulerPaths } from "./paths.ts";
 import { loadRegistry, updateRegistry } from "./registry.ts";
 import { createTaskId } from "./runs.ts";
@@ -54,7 +55,7 @@ export async function addTask(
   if (!prompt) throw new Error("Task prompt must not be empty");
 
   const schedule = parseScheduleInput(input.schedule);
-  const notifyTo = normalizeNotifyTo(input.notifyTo);
+  const notifyTo = normalizeChannelIds(input.notifyTo);
   if (notifyTo) await warnUnknownChannels(projectDir, notifyTo);
   const task: ScheduleTask = {
     id: createTaskId(),
@@ -129,19 +130,12 @@ function initialNextRun(schedule: ScheduleTask["schedule"], now: Date): string |
   return calculateNextRun(schedule, now)?.toISOString();
 }
 
-/** Trim, drop empties, dedupe — an empty result means "no routing", same as absent. */
-function normalizeNotifyTo(ids?: string[]): string[] | undefined {
-  if (!ids?.length) return undefined;
-  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
-  return unique.length ? unique : undefined;
-}
-
 /**
  * Catch channel typos now, not at the first 3 a.m. run: routing to an id
  * this project never configured would silently deliver nothing. Every
  * creator shares this check through addTask (CLI, Pi commands, the tool).
  */
-async function warnUnknownChannels(projectDir: string, ids: string[]): Promise<void> {
+async function warnUnknownChannels(projectDir: string, ids: ChannelId[]): Promise<void> {
   const config = await loadNotifyConfig(schedulerPaths(projectDir).dir);
   const known = new Set(config.channels.map((channel) => channel.id));
   for (const id of ids) {

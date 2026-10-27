@@ -7,9 +7,9 @@ import { PI_STORE_ENV } from "./agents/pi/adapter.ts";
 import { migratePiSessions } from "./agents/pi/migrate.ts";
 import type { AgentRegistry } from "./agents/registry.ts";
 import { acquireLock } from "./lock.ts";
-import { loadNotifyConfig } from "./notify/config.ts";
+import { loadNotifyConfig, normalizeChannelIds } from "./notify/config.ts";
 import { notifiersFor } from "./notify/dispatch.ts";
-import type { RunNotification } from "./notify/types.ts";
+import type { ChannelId, RunNotification } from "./notify/types.ts";
 import { schedulerPaths } from "./paths.ts";
 import { loadRegistry } from "./registry.ts";
 import { listRuns, pruneRuns } from "./runs.ts";
@@ -253,11 +253,10 @@ function notifyFlag(flags: Map<string, string | boolean>): "always" | "error" | 
 }
 
 /** --notify-to a,b — comma-separated channel ids; empty means "no routing". */
-function notifyToFlag(flags: Map<string, string | boolean>): string[] | undefined {
+function notifyToFlag(flags: Map<string, string | boolean>): ChannelId[] | undefined {
   const value = stringFlag(flags, "notify-to");
   if (value === undefined) return undefined;
-  const ids = [...new Set(value.split(",").map((id) => id.trim()).filter(Boolean))];
-  return ids.length ? ids : undefined;
+  return normalizeChannelIds(value.split(","));
 }
 
 /** Sends a synthetic notification through every configured channel (or one). */

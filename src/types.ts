@@ -1,3 +1,4 @@
+import type { ChannelId } from "./notify/types.ts";
 import type { ScheduleDefinition } from "./scheduling.ts";
 
 /** What caused a Task Run: the planned time arriving, or an explicit request. */
@@ -22,7 +23,7 @@ export type ScheduleTask = {
   /** When this task's runs produce notifications; overrides the project default. */
   notify?: "always" | "error" | "never";
   /** Channel ids this task's runs notify; absent or empty means every configured channel. */
-  notifyTo?: string[];
+  notifyTo?: ChannelId[];
   /** Registry state: the most recent run of any trigger. */
   lastRunAt?: string;
   lastStatus?: RunStatus;

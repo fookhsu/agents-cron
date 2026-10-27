@@ -52,17 +52,22 @@ export function systemNotifier(
             ...(channel.sound ? [`sound name "${escape(channel.sound)}"`] : []),
           ].join(" "),
         ]);
-        if (result.status !== 0) throw new Error(`osascript exited ${result.status}: ${result.stderr.trim()}`);
+        requireSuccess("osascript", result);
         return;
       }
       if (platform === "linux") {
         const result = await run("notify-send", [title, detail]);
-        if (result.status !== 0) throw new Error(`notify-send exited ${result.status}: ${result.stderr.trim()}`);
+        requireSuccess("notify-send", result);
         return;
       }
       throw new Error(`system channel "${channel.id}" supports macOS and Linux, not ${platform}`);
     },
   };
+}
+
+/** A helper that exited non-zero (or was killed) failed — surface its exit status and stderr. */
+function requireSuccess(command: string, result: { status: number | null; stderr: string }): void {
+  if (result.status !== 0) throw new Error(`${command} exited ${result.status}: ${result.stderr.trim()}`);
 }
 
 /** AppleScript string literal: only backslash and double quote are special. */

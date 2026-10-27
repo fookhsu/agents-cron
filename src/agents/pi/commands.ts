@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readRun, listRunsForTask } from "../../runs.ts";
 import { runTask } from "../../runner.ts";
+import { normalizeChannelIds } from "../../notify/config.ts";
 import { schedulerPaths } from "../../paths.ts";
 import { parseDuration, parseScheduleSpec } from "../../scheduling.ts";
 import { addTask, clearTasks, listTasks, removeTask, requireTask, setTaskEnabled } from "../../task-service.ts";
@@ -170,8 +171,8 @@ export function parseTrailingFlags(args: string): TrailingFlags {
       }
       notify = match[2];
     } else {
-      const ids = match[2].split(",").map((id) => id.trim()).filter(Boolean);
-      if (!ids.length) throw new Error("--to requires at least one channel id");
+      const ids = normalizeChannelIds(match[2].split(","));
+      if (!ids?.length) throw new Error("--to requires at least one channel id");
       to = [...(to ?? []), ...ids];
     }
     rest = rest.slice(0, match.index).trimEnd();

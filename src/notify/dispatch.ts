@@ -3,7 +3,7 @@ import type { RunRecord, ScheduleTask } from "../types.ts";
 import { emailNotifier } from "./email.ts";
 import { systemNotifier } from "./system.ts";
 import { webhookNotifier } from "./webhook.ts";
-import type { Notifier, NotificationChannel, NotificationsConfig, NotifyLevel, RunNotification } from "./types.ts";
+import type { ChannelId, Notifier, NotificationChannel, NotificationsConfig, NotifyLevel, RunNotification } from "./types.ts";
 
 /** Whether a run with this status warrants a notification at this level. */
 export function shouldNotify(level: NotifyLevel, status: RunRecord["status"]): boolean {
@@ -24,17 +24,17 @@ export function notifiersFor(config: NotificationsConfig): Notifier[] {
 }
 
 /**
- * Resolves which configured channels a task addresses: `notifyTo` filters the
- * configured set by channel id; absent or empty means every channel. Unknown
- * ids warn on stderr and are skipped — a typo must not silence the rest.
+ * Resolves which configured channels a list of channel ids addresses:
+ * routing filters the configured set by channel id; absent or empty means
+ * every channel. Unknown ids warn on stderr and are skipped — a typo must
+ * not silence the rest.
  */
-export function notifiersForTask(config: NotificationsConfig, task: Pick<ScheduleTask, "notifyTo">): Notifier[] {
+export function notifiersForTask(config: NotificationsConfig, ids?: ChannelId[]): Notifier[] {
   const all = notifiersFor(config);
-  const wanted = task.notifyTo;
-  if (!wanted?.length) return all;
+  if (!ids?.length) return all;
   const byId = new Map(all.map((notifier) => [notifier.id, notifier]));
   const selected: Notifier[] = [];
-  for (const id of wanted) {
+  for (const id of ids) {
     const notifier = byId.get(id);
     if (notifier) selected.push(notifier);
     else process.stderr.write(`[agents-cron] unknown notification channel "${id}"; skipped\n`);
@@ -66,7 +66,7 @@ export async function dispatchNotifications(
   if (run.status === "running") return; // only terminal runs are announced
   if (!shouldNotify(level, run.status)) return;
 
-  const notifiers = notifiersForTask(config, { notifyTo: task.notifyTo ?? config.defaultTo });
+  const notifiers = notifiersForTask(config, task.notifyTo ?? config.defaultTo);
   if (notifiers.length === 0) return;
 
   const notification: RunNotification = {
