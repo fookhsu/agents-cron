@@ -253,14 +253,20 @@ file permissions), and by default only **failed** runs notify:
 - `on` is the project default — `error` (default), `always`, or `never` — and a
   task overrides it with `notify` (`agents-cron add --notify always …`).
 - A task can also **route** its notifications: `notifyTo` names the channel ids
-  it announces on, and a task without it notifies every configured channel.
-  Route with `agents-cron add --notify-to feishu,mail …`, or in Pi with a
+  it announces on, and a task without it notifies every configured channel —
+  unless the project sets a default route: `"defaultTo": ["feishu"]` applies to
+  every task that names no channels of its own, and a task's `notifyTo` still
+  wins. Route with `agents-cron add --notify-to feishu,mail …`, or in Pi with a
   trailing flag: `/remind in 45m review the release --to feishu --notify always`.
   Channel ids resolve against this project's config — an unknown id is warned
   about (at `add` time and at dispatch) and skipped, never fatal.
 - **webhook** works with anything that accepts a POST: Slack, Lark, Discord,
   n8n, a home-rolled endpoint. The default body is JSON
   (`{source, project, task, run…}`); `format: "text"` posts the human summary.
+- **system** shows the run as a desktop notification — macOS Notification
+  Center (`osascript`, optional `sound`) or Linux `notify-send`. No external
+  service needed, so it is the lightest way to make reminders perceptible:
+  `{ "id": "mac", "type": "system", "sound": "Glass" }`.
 - **email** speaks plain SMTP (Gmail, QQ, 163, self-hosted). The password
   comes from the environment, never the config file: `AGENTS_CRON_SMTP_PASSWORD`
   by default, or the channel's `passwordEnv`. The optional `nodemailer`

@@ -51,16 +51,29 @@ tasks, run history, and per-run summaries, errors, and session records — the
 quickest way to see why a task did not run.
 
 Runs can also push notifications through `.agents/cron/config.json` channels —
-SMTP email (QQ/Foxmail-style) and webhook, including the Feishu group-bot
-format (`"format": "feishu"`; the bot's keyword must be `task`, and signature
-security is not supported) — error-only by default, and a task may override
+SMTP email (QQ/Foxmail-style), webhook (including the Feishu group-bot format
+`"format": "feishu"`; the bot's keyword must be `task`, and signature
+security is not supported), and `system` desktop notifications (macOS
+Notification Center via osascript, Linux via notify-send — zero setup, ideal
+for local-only reminders) — error-only by default, and a task may override
 the level (`--notify always`) and route itself to specific channels
-(`--to feishu` in Pi, `--notify-to feishu,mail` on the CLI). First-time setup
-is guided: run `agents-cron setup-notify` with the user; it opens the mail
-and Feishu consoles, captures the SMTP 授权码 and webhook URL, writes
-config.json plus `.agents/cron/notify.env` (secrets never enter config.json),
-wires the shell, and live-tests each channel. Verify an existing setup with
+(`--to feishu` in Pi, `--notify-to feishu,mail` on the CLI). A project may
+also set a default route: `"defaultTo": ["feishu"]` applies to every task
+that names no channels of its own. First-time setup is guided: run
+`agents-cron setup-notify` with the user; it opens the mail and Feishu
+consoles, captures the SMTP 授权码 and webhook URL, writes config.json plus
+`.agents/cron/notify.env` (secrets never enter config.json), wires the shell,
+and live-tests each channel. Verify an existing setup with
 `agents-cron test-notify`.
+
+When the user wants to perceive a task's output, resolve its notification
+before creating it: read the task project's `.agents/cron/config.json`; if
+`notifications.defaultTo` names channels, route to them without asking; if
+channels exist but no default does, ask which ones (list their ids); if there
+are no channels yet, offer `agents-cron setup-notify` or a `system` channel.
+Tasks created so the user can see the result should carry `--notify always`
+(reminders included — the default level announces only failures). Confirm the
+chosen routing back to the user with the task id and next run time.
 
 If `agents-cron` is not on `PATH`, call the installed binary directly:
 `"$HOME/.pi/agent/npm/node_modules/.bin/agents-cron"` for a global install or
@@ -88,6 +101,11 @@ on both.
   expression (quote it whenever it contains spaces).
 - Deleting and clearing tasks requires interactive confirmation in Pi; creating
   a task does not.
+- Resolve notifications when creating a task the user wants to hear about:
+  apply `notifications.defaultTo` if set, else ask from the configured
+  channels, else offer `setup-notify` or a `system` channel; add
+  `--notify always --to <ids>` (Pi) or `--notify always --notify-to <ids>`
+  (CLI) to the created task.
 - Tasks contain prompts for Pi; they never contain arbitrary shell commands.
 - Do not create duplicate tasks when an existing task already represents the
   same request.

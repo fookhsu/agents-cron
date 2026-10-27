@@ -20,8 +20,9 @@ after(() => restoreHome?.());
 import { shouldNotify, notifiersFor, dispatchNotifications } from "../src/notify/dispatch.ts";
 import { loadNotifyConfig } from "../src/notify/config.ts";
 import { emailNotifier, type MailTransport } from "../src/notify/email.ts";
+import { systemNotifier, type CommandRunner } from "../src/notify/system.ts";
 import { subjectOf } from "../src/notify/format.ts";
-import type { NotificationChannel, NotificationsConfig, RunNotification, WebhookChannel } from "../src/notify/types.ts";
+import type { NotificationChannel, NotificationsConfig, RunNotification, SystemChannel, WebhookChannel } from "../src/notify/types.ts";
 import type { AgentAdapter, AgentRunRequest, AgentRunResult } from "../src/agents/types.ts";
 import type { AgentRegistry } from "../src/agents/registry.ts";
 import { runDue } from "../src/runner.ts";
@@ -51,6 +52,7 @@ test("a valid config parses and invalid channels are dropped", async () => {
       version: 1,
       notifications: {
         on: "always",
+        defaultTo: ["hook", "", 3],
         channels: [
           { id: "hook", type: "webhook", url: "https://example.com/hook", headers: { Authorization: "Bearer t" } },
           { id: "bad-url", type: "webhook", url: "not-a-url" },
@@ -62,6 +64,7 @@ test("a valid config parses and invalid channels are dropped", async () => {
   );
   const config = await loadNotifyConfig(dir);
   assert.equal(config.on, "always");
+  assert.deepEqual(config.defaultTo, ["hook"]);
   assert.deepEqual(
     config.channels.map((c: NotificationChannel) => c.id),
     ["hook", "mail"],
@@ -361,5 +364,122 @@ test("a feishu webhook fails loudly when the bot rejects the message", async () 
   } finally {
     server.closeAllConnections?.();
     await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("a system channel parses with its optional sound", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "agents-cron-notify-"));
+  await writeFile(
+    join(dir, "config.json"),
+    JSON.stringify({
+      version: 1,
+      notifications: {
+        channels: [
+          { id: "mac", type: "system", sound: "Glass" },
+          { id: "bare", type: "system" },
+          { id: "no-sound-type", type: "system", sound: 42 },
+        ],
+      },
+    }),
+  );
+  const config = await loadNotifyConfig(dir);
+  assert.deepEqual(config.channels, [
+    { id: "mac", type: "system", sound: "Glass" },
+    { id: "bare", type: "system" },
+    { id: "no-sound-type", type: "system" }, // bad sound is tolerated, like email's port
+  ]);
+});
+
+test("a system notifier drives macOS Notification Center via osascript", async () => {
+  const calls: Array<{ command: string; args: string[] }> = [];
+  const run: CommandRunner = async (command, args) => {
+    calls.push({ command, args });
+    return { status: 0, stderr: "" };
+  };
+  const channel: SystemChannel = { id: "mac", type: "system", sound: "Glass" };
+
+  await systemNotifier(channel, "darwin", run).send(sampleNotification("success"));
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].command, "osascript");
+  const script = calls[0].args[1];
+  assert.match(script, /^display notification "/);
+  assert.ok(script.includes('with title "agents-cron ✓ nightly digest success"'));
+  assert.match(script, /subtitle "demo"/);
+  assert.match(script, /sound name "Glass"/);
+  assert.ok(script.includes("All 82 tests passed"));
+});
+
+test("a system notifier escapes quotes and backslashes in model output", async () => {
+  const calls: Array<{ command: string; args: string[] }> = [];
+  const run: CommandRunner = async (command, args) => {
+    calls.push({ command, args });
+    return { status: 0, stderr: "" };
+  };
+  const notification = sampleNotification("error");
+  notification.error = 'say "hi" \\ done';
+
+  await systemNotifier({ id: "mac", type: "system" }, "darwin", run).send(notification);
+
+  // The raw payload must not survive into the AppleScript string unescaped.
+  const script = calls[0].args[1];
+  assert.ok(!script.includes('say "hi"'));
+  assert.ok(script.includes('say \\"hi\\"'));
+});
+
+test("a system notifier drives Linux notify-send and caps the summary", async () => {
+  const calls: Array<{ command: string; args: string[] }> = [];
+  const run: CommandRunner = async (command, args) => {
+    calls.push({ command, args });
+    return { status: 0, stderr: "" };
+  };
+  const notification = sampleNotification("success");
+  notification.summary = "x".repeat(1_000);
+
+  await systemNotifier({ id: "linux", type: "system" }, "linux", run).send(notification);
+
+  assert.deepEqual(calls[0].command, "notify-send");
+  assert.ok(calls[0].args[0].startsWith("agents-cron"));
+  assert.ok(calls[0].args[1].length < 600);
+  assert.ok(calls[0].args[1].endsWith("…"));
+});
+
+test("a system notifier reports a failing osascript and an unsupported platform", async () => {
+  const failed: CommandRunner = async () => ({ status: 1, stderr: "boom" });
+  await assert.rejects(
+    systemNotifier({ id: "mac", type: "system" }, "darwin", failed).send(sampleNotification("success")),
+    /osascript exited 1: boom/,
+  );
+  await assert.rejects(
+    systemNotifier({ id: "win", type: "system" }, "win32", async () => ({ status: 0, stderr: "" })).send(sampleNotification("success")),
+    /supports macOS and Linux, not win32/,
+  );
+});
+
+test("config defaultTo routes tasks that name no channels of their own", async () => {
+  const a = await capturingServer();
+  const b = await capturingServer();
+  const config = {
+    on: "always",
+    defaultTo: ["hook-b"],
+    channels: [
+      { id: "hook-a", type: "webhook", url: a.url } as WebhookChannel,
+      { id: "hook-b", type: "webhook", url: b.url } as WebhookChannel,
+    ],
+  } satisfies NotificationsConfig;
+
+  try {
+    // No task routing: the config default decides.
+    await dispatchNotifications(config, minimalTask({}), terminalRun("success"), "/proj/demo");
+    assert.equal(a.requests.length, 0);
+    assert.equal(b.requests.length, 1);
+
+    // A task's own notifyTo still wins over the config default.
+    await dispatchNotifications(config, minimalTask({ notifyTo: ["hook-a"] }), terminalRun("success"), "/proj/demo");
+    assert.equal(a.requests.length, 1);
+    assert.equal(b.requests.length, 1);
+  } finally {
+    await a.close();
+    await b.close();
   }
 });

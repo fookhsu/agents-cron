@@ -36,7 +36,15 @@ export type EmailChannel = {
   subjectPrefix?: string;
 };
 
-export type NotificationChannel = WebhookChannel | EmailChannel;
+/** Shows the run as a desktop notification (macOS Notification Center, Linux notify-send). */
+export type SystemChannel = {
+  id: string;
+  type: "system";
+  /** macOS sound name (Glass, Ping, …); ignored on Linux. */
+  sound?: string;
+};
+
+export type NotificationChannel = WebhookChannel | EmailChannel | SystemChannel;
 
 /** Which runs produce a notification. */
 export type NotifyLevel = "always" | "error" | "never";
@@ -44,6 +52,8 @@ export type NotifyLevel = "always" | "error" | "never";
 export type NotificationsConfig = {
   /** Project-wide default; a task's `notify` field overrides it. */
   on: NotifyLevel;
+  /** Project-wide default routing; a task's `notifyTo` field overrides it, and absent routing means every channel. */
+  defaultTo?: string[];
   channels: NotificationChannel[];
 };
 

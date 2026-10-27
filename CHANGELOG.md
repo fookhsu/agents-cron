@@ -11,6 +11,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `system` notification channel: a finished run pops a desktop notification —
+  macOS Notification Center (optional `sound`) or Linux `notify-send`. No
+  external service, ideal for local-only reminders
+- Project-wide default routing: `"defaultTo": ["feishu"]` in
+  `.agents/cron/config.json` routes every task that names no channels of its
+  own; a task's `notifyTo` still wins
 - Per-task notification routing: `notifyTo` names the channel ids a task
   announces on — `/remind in 45m review --to feishu --notify always`,
   `agents-cron add --notify-to feishu,mail`, or `notifyTo` on the

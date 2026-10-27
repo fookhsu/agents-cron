@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import type { RunRecord, ScheduleTask } from "../types.ts";
 import { emailNotifier } from "./email.ts";
+import { systemNotifier } from "./system.ts";
 import { webhookNotifier } from "./webhook.ts";
 import type { Notifier, NotificationChannel, NotificationsConfig, NotifyLevel, RunNotification } from "./types.ts";
 
@@ -44,6 +45,7 @@ export function notifiersForTask(config: NotificationsConfig, task: Pick<Schedul
 function notifierFor(channel: NotificationChannel): Notifier | undefined {
   if (channel.type === "webhook") return webhookNotifier(channel);
   if (channel.type === "email") return emailNotifier(channel);
+  if (channel.type === "system") return systemNotifier(channel);
   return undefined;
 }
 
@@ -51,7 +53,8 @@ function notifierFor(channel: NotificationChannel): Notifier | undefined {
  * Offers one finished run to the channels a task addresses, best effort: a
  * level check first, then the selected channels in parallel, and every
  * failure is reported on stderr instead of thrown — a broken webhook must
- * never break the run itself.
+ * never break the run itself. Routing resolves like the level does: the task's
+ * own `notifyTo` first, then the config's `defaultTo`, then every channel.
  */
 export async function dispatchNotifications(
   config: NotificationsConfig,
@@ -63,7 +66,7 @@ export async function dispatchNotifications(
   if (run.status === "running") return; // only terminal runs are announced
   if (!shouldNotify(level, run.status)) return;
 
-  const notifiers = notifiersForTask(config, task);
+  const notifiers = notifiersForTask(config, { notifyTo: task.notifyTo ?? config.defaultTo });
   if (notifiers.length === 0) return;
 
   const notification: RunNotification = {

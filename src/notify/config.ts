@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { EmailChannel, NotificationChannel, NotificationsConfig, NotifyLevel, WebhookChannel } from "./types.ts";
+import type { EmailChannel, NotificationChannel, NotificationsConfig, NotifyLevel, SystemChannel, WebhookChannel } from "./types.ts";
 
 /** The default: cron only interrupts you when something actually broke. */
 export const DEFAULT_NOTIFY_LEVEL: NotifyLevel = "error";
@@ -34,6 +34,10 @@ function normalize(parsed: Record<string, unknown>, file: string): Notifications
   if (notifications.on !== undefined && !isNotifyLevel(notifications.on)) {
     warn(file, `notifications.on "${String(notifications.on)}" is not one of always|error|never; using "${on}"`);
   }
+  const defaultTo = asChannelIds(notifications.defaultTo);
+  if (notifications.defaultTo !== undefined && !defaultTo) {
+    warn(file, `notifications.defaultTo ${JSON.stringify(notifications.defaultTo)} is not a list of channel ids; ignoring`);
+  }
 
   const channels: NotificationChannel[] = [];
   for (const entry of Array.isArray(notifications.channels) ? notifications.channels : []) {
@@ -41,7 +45,7 @@ function normalize(parsed: Record<string, unknown>, file: string): Notifications
     if (channel) channels.push(channel);
     else warn(file, `dropping invalid notification channel ${JSON.stringify(entry)}`);
   }
-  return { on, channels };
+  return { on, ...(defaultTo ? { defaultTo } : {}), channels };
 }
 
 function asChannel(entry: unknown): NotificationChannel | undefined {
@@ -79,7 +83,19 @@ function asChannel(entry: unknown): NotificationChannel | undefined {
     return channel;
   }
 
+  if (c.type === "system") {
+    if (typeof c.sound !== "string" || !c.sound) return { id: c.id, type: "system" } satisfies SystemChannel;
+    return { id: c.id, type: "system", sound: c.sound } satisfies SystemChannel;
+  }
+
   return undefined;
+}
+
+/** A non-empty list of non-empty strings, or undefined. */
+function asChannelIds(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const ids = value.filter((id): id is string => typeof id === "string" && !!id.trim()).map((id) => id.trim());
+  return ids.length ? [...new Set(ids)] : undefined;
 }
 
 function isNotifyLevel(value: unknown): value is NotifyLevel {
