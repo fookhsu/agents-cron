@@ -63,6 +63,23 @@ test("/schedule with an unknown action errors and points at help", async () => {
   assert.match(notices[0].message, /Usage: \/schedule <action>/);
 });
 
+test("/remind usage errors teach the duration syntax", async () => {
+  const { commands } = stubPi();
+  const { ctx, notices } = stubCtx();
+
+  // Missing "in": neither reminder shape matches — the usage line must show units.
+  await commands.get("remind")!.handler("45m check the PR", ctx);
+  assert.equal(notices[0].level, "error");
+  assert.match(notices[0].message, /Usage: \/remind in <duration> <prompt>/);
+  assert.match(notices[0].message, /30s, 5m, 2h, 1d/);
+
+  // A bare number parses as neither shape nor duration: the duration error
+  // carries the same hint.
+  await commands.get("remind")!.handler("in 45 check the PR", ctx);
+  assert.match(notices[1].message, /Invalid duration: 45/);
+  assert.match(notices[1].message, /30s, 5m, 2h, 1d/);
+});
+
 test("a known action without an id still asks for the id", async () => {
   const { commands } = stubPi();
   const { ctx, notices } = stubCtx();

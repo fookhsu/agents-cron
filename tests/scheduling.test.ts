@@ -21,6 +21,11 @@ test("rejects invalid or sub-minute durations", () => {
   assert.throws(() => parseScheduleInput({ kind: "interval", every: "30s" }), /minute/i);
 });
 
+test("duration errors name the accepted syntax", () => {
+  assert.throws(() => parseDuration("45"), /30s, 5m, 2h, 1d/);
+  assert.throws(() => parseDuration("45 fortnights"), /use s\/sec, m\/min, h\/hr, or d\/day/);
+});
+
 test("calculates once and interval schedules", () => {
   const now = new Date("2026-09-01T10:00:00.000Z");
   assert.equal(

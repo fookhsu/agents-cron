@@ -7,6 +7,14 @@ new one as an in-terminal notice; `/schedule changelog` shows this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Duration parse errors and the `/remind` usage line now name the accepted
+  syntax — a number plus a unit (`30s`, `5m`, `2h`, `1d`) — instead of a bare
+  "Usage: …" that left the unit guessing
+
 ## [0.13.1] - 2026-10-28
 
 ### Added

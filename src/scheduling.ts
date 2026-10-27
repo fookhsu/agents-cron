@@ -37,10 +37,10 @@ const DURATION_UNITS: Record<string, number> = {
 
 export function parseDuration(value: string): number {
   const match = /^\s*(\d+(?:\.\d+)?)\s*([a-z]+)\s*$/i.exec(value);
-  if (!match) throw new Error(`Invalid duration: ${value}`);
+  if (!match) throw new Error(`Invalid duration: ${value} — expected a number plus a unit: 30s, 5m, 2h, 1d`);
 
   const unit = DURATION_UNITS[match[2].toLowerCase()];
-  if (!unit) throw new Error(`Invalid duration unit in: ${value}`);
+  if (!unit) throw new Error(`Invalid duration unit in: ${value} — use s/sec, m/min, h/hr, or d/day`);
 
   const duration = Number(match[1]) * unit;
   if (!Number.isFinite(duration) || duration <= 0) {

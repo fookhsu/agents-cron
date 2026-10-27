@@ -228,7 +228,11 @@ function parseReminder(args: string): { runAt: string; prompt: string } {
   }
 
   const atMatch = /^\s*at\s+(\d{1,2}):(\d{2})\s+([\s\S]+?)\s*$/i.exec(args);
-  if (!atMatch) throw new Error("Usage: /remind in <duration> <prompt> or /remind at HH:MM <prompt>");
+  if (!atMatch) {
+    throw new Error(
+      "Usage: /remind in <duration> <prompt> or /remind at HH:MM <prompt> — duration is a number + unit (30s, 5m, 2h, 1d); HH:MM is 24-hour local time, a past time runs tomorrow",
+    );
+  }
   const hour = Number(atMatch[1]);
   const minute = Number(atMatch[2]);
   if (hour > 23 || minute > 59) throw new Error("Time must be in HH:MM format");
