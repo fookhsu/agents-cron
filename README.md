@@ -324,7 +324,6 @@ file permissions), and by default only **failed** runs notify:
 /schedule import <file>              # new tasks here, disabled until enabled
 /schedule clear
 /schedule help
-/unschedule <id>
 ```
 
 `/loop` and `/schedule add` take a schedule first: a duration (`30m`), a cron
@@ -365,7 +364,7 @@ without deferred exposure the tool simply registers as before.
 `notify` sets the task's notification level and `notifyTo` routes it to named
 channels from `.agents/cron/config.json`; both are optional and independent.
 
-Deleting and clearing tasks requires interactive confirmation; creating a task does not. The `/schedule remove`, `/schedule clear`, and `/unschedule` commands ask for the same confirmation.
+Deleting and clearing tasks requires interactive confirmation; creating a task does not. The `/schedule remove` and `/schedule clear` commands ask for the same confirmation.
 
 ## Configuration and overrides
 

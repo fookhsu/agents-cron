@@ -28,6 +28,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   runner's auto-prune), and `/loop` and `/schedule add` share one creation
   path instead of two copies of the same logic.
 
+### Removed
+
+- The `/unschedule` command and the `/schedule delete` alias —
+  `/schedule remove <id>` is the one delete path (the agent tool's `delete`
+  action is unchanged).
+
 ## [0.13.2] - 2026-10-28
 
 ### Fixed

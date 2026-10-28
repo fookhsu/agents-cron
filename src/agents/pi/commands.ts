@@ -141,7 +141,7 @@ export function registerCommands(pi: ExtensionAPI): void {
           await executeNow(ctx, requireId(tokens[1], action));
           return;
         }
-        if (action === "remove" || action === "delete") {
+        if (action === "remove") {
           const id = requireId(tokens[1], action);
           await confirmMutation(ctx, `Delete scheduled task ${id}?`);
           await removeTask(ctx.cwd, id);
@@ -149,19 +149,6 @@ export function registerCommands(pi: ExtensionAPI): void {
           return;
         }
         throw new Error(`Unknown action "${action}".\n${SCHEDULE_HELP}`);
-      });
-    },
-  });
-
-  pi.registerCommand("unschedule", {
-    description: "Delete a scheduled task: /unschedule <id>",
-    handler: async (args, ctx) => {
-      await guard(ctx, async () => {
-        const id = args.trim();
-        if (!id) throw new Error("Usage: /unschedule <id>");
-        await confirmMutation(ctx, `Delete scheduled task ${id}?`);
-        await removeTask(ctx.cwd, id);
-        ctx.ui.notify(`Removed ${id}`, "info");
       });
     },
   });
@@ -229,7 +216,7 @@ const SCHEDULE_HELP = [
   "  enable <id>           resume a paused task",
   "  disable <id>          pause a task",
   "  run <id>              run a task now; its schedule is untouched",
-  "  remove <id>           delete a task (alias: delete)",
+  "  remove <id>           delete a task",
   "  runs <id>             list run records",
   "  show <id>             show a task's scheduling facts and prompt",
   "  open <runId>          show a run's Task Session path",
@@ -242,7 +229,7 @@ const SCHEDULE_HELP = [
   "  --to <id,id>          route this task's notifications to those channels",
   "  --notify-to <id,id>   alias of --to (the CLI spelling)",
   "  --notify <level>      always, error (project default), or never",
-  "Related: /loop <spec> <prompt>, /remind in 45m <prompt>, /unschedule <id>",
+  "Related: /loop <spec> <prompt>, /remind in 45m <prompt>",
 ].join("\n");
 
 async function guard(ctx: CommandContext, run: () => Promise<void>): Promise<void> {

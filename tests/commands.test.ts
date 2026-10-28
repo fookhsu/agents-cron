@@ -278,3 +278,15 @@ test("/schedule import names the file when it cannot be read", async () => {
   assert.equal(notices[0].level, "error");
   assert.match(notices[0].message, /not\/here\.json/);
 });
+
+test("/unschedule is gone and /schedule delete is no longer an alias — remove is the one path", async () => {
+  const { commands } = stubPi();
+  assert.equal(commands.has("unschedule"), false);
+
+  const { ctx, notices } = stubCtx();
+  await commands.get("schedule")!.handler("delete task_abcd", ctx);
+
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].level, "error");
+  assert.match(notices[0].message, /Unknown action "delete"/);
+});
