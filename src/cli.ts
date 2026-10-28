@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import "./agents/builtin.ts";
@@ -15,7 +16,8 @@ import { loadRegistry } from "./registry.ts";
 import { listRuns, pruneRuns } from "./runs.ts";
 import { runDue, runTask, TaskNotFoundError } from "./runner.ts";
 import type { ScheduleInput } from "./scheduling.ts";
-import { addTask, clearTasks, listTasks, removeTask, requireTask, setTaskEnabled } from "./task-service.ts";
+import { addTask, clearTasks, exportTasks, importTasks, listTasks, removeTask, requireTask, setTaskEnabled } from "./task-service.ts";
+import { parseExportFile } from "./task-export.ts";
 import type { RunRecord, ScheduleTask } from "./types.ts";
 
 const USAGE = [
@@ -27,6 +29,8 @@ const USAGE = [
   "  show <taskId> [--json]                  Show one task: scheduling facts and its prompt",
   "  add --prompt <text> (--at <iso>|--every <duration>|--cron <expr>) [options]",
   "  enable <taskId> | disable <taskId> | remove <taskId>",
+  "  export [--out <file>] [--all] [taskId...]  Write task definitions as JSON (stdout, or --out)",
+  "  import <file> [--dry-run]                    Import definitions here; new tasks start disabled",
   "  prune --keep <n> [--project <path>]     Keep the newest n runs per task",
   "  dashboard [--port <n>] [--project <path>]   Serve a local read-only dashboard",
   "  migrate-sessions [--dry-run] [--project <path>]   Carry legacy transcripts into Pi's session store",
@@ -98,6 +102,10 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
         out(`Cleared ${await clearTasks(project)} task(s)`);
         return 0;
       }
+      case "export":
+        return await commandExport(project, flags, positional, out);
+      case "import":
+        return await commandImport(project, flags, positional, out, err);
       case "prune":
         return await commandPrune(project, explicitProject, flags, out);
       case "dashboard":
@@ -224,6 +232,71 @@ async function commandAdd(
   });
   out(`Created ${task.id}; next run ${task.nextRunAt ?? "never"}`);
   return 0;
+}
+
+/** Writes a Task Export: definitions only — stdout by default, a file with --out. */
+async function commandExport(
+  project: string,
+  flags: Map<string, string | boolean>,
+  positional: string[],
+  out: (line: string) => void,
+): Promise<number> {
+  if (flags.has("all") && positional.length > 0) {
+    throw new Error("export: pass either --all or task ids, not both");
+  }
+  const file = await exportTasks(project, {
+    ...(positional.length ? { ids: positional } : {}),
+    ...(flags.has("all") ? { all: true } : {}),
+  });
+  const json = JSON.stringify(file, null, 2);
+
+  const target = stringFlag(flags, "out");
+  if (target === undefined) {
+    out(json);
+    return 0;
+  }
+  const destination = resolve(process.cwd(), target);
+  await mkdir(dirname(destination), { recursive: true });
+  await writeFile(destination, `${json}\n`, "utf8");
+  out(`Wrote ${file.tasks.length} task(s) to ${target}`);
+  return 0;
+}
+
+/** Reads a Task Export and creates its definitions here, disabled by default. */
+async function commandImport(
+  project: string,
+  flags: Map<string, string | boolean>,
+  positional: string[],
+  out: (line: string) => void,
+  err: (line: string) => void,
+): Promise<number> {
+  const file = requireArgument(positional[0], "import requires a file path");
+  let raw: string;
+  try {
+    raw = await readFile(resolve(process.cwd(), file), "utf8");
+  } catch (error) {
+    throw new Error(`Cannot read task export ${file}: ${(error as Error).message}`);
+  }
+  const parsed = parseExportFile(raw);
+  const dryRun = flags.has("dry-run");
+  const report = await importTasks(project, parsed.tasks, { dryRun });
+
+  const verb = dryRun ? "Would import" : "Imported";
+  out(`${verb} ${report.created.length} task(s) into ${project}; all start disabled`);
+  for (const task of report.created) {
+    const label = task.name ?? previewPrompt(task.prompt);
+    out(`  ${dryRun ? `would create ${label}` : `created ${task.id} — ${label}`}`);
+  }
+  for (const skip of report.skipped) {
+    out(`  skipped "${skip.entry.name ?? previewPrompt(skip.entry.prompt)}" — ${skip.reason}`);
+  }
+  if (parsed.tasks.length === 0) out("  (the file contains no tasks)");
+  for (const warning of report.warnings) err(`Warning: ${warning}`);
+  return 0;
+}
+
+function previewPrompt(prompt: string): string {
+  return prompt.length > 40 ? `${prompt.slice(0, 40)}…` : prompt;
 }
 
 /**

@@ -171,6 +171,8 @@ agents-cron list [--json]                              # current project first, 
 agents-cron show <taskId> [--json]                     # one task in full, prompt included
 agents-cron add --prompt <text> (--at <iso>|--every <duration>|--cron <expr>) [--agent <id>] [options]
 agents-cron enable <taskId> | disable <taskId> | remove <taskId>
+agents-cron export [--out <file>] [--all] [taskId...]  # task definitions as JSON
+agents-cron import <file> [--dry-run]                  # new tasks bind here, start disabled
 agents-cron prune --keep <n>                           # all projects unless --project
 agents-cron dashboard [--port <n>]                     # global, grouped by project
 agents-cron migrate-sessions [--dry-run] [--project <path>]   # legacy transcripts into Pi's store
@@ -189,6 +191,22 @@ project's tasks first, then every other project grouped under a header, with
 
 Exit codes: `0` success (including "no due tasks" and "another instance holds
 the lock"), `1` at least one task failed, `2` configuration or storage error.
+
+### Export and import
+
+`export` writes a **Task Export**: a versioned JSON file of task definitions
+and nothing else — no ids, no project bindings, no registry state or run
+history. `import` turns each entry into a fresh task bound to the current
+project, **disabled by default** (imported prompts will run with your
+credentials — review, then `enable` each task). An entry is skipped as a
+duplicate only when name, prompt, and schedule all match an existing task of
+the project, so importing the same file twice adds nothing.
+
+`export` prints to stdout (pipe it anywhere) or writes a file with `--out`;
+`--all` spans every project for a whole-machine backup, and the file still
+carries no paths — restoring on a new machine binds everything to the
+directory you import from. `import --dry-run` prints the identical report
+without writing.
 
 ### The global task list
 
@@ -300,6 +318,9 @@ file permissions), and by default only **failed** runs notify:
 /schedule remove <id>
 /schedule runs <id>
 /schedule open <runId>
+/schedule export [file]              # definitions to agents-cron.tasks.json
+/schedule export --all               # every project's definitions
+/schedule import <file>              # new tasks here, disabled until enabled
 /schedule clear
 /schedule help
 /unschedule <id>

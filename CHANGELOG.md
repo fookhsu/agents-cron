@@ -7,6 +7,19 @@ new one as an in-terminal notice; `/schedule changelog` shows this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Task export and import (ADR 0009): `agents-cron export [--out <file>]
+  [--all] [taskId...]` writes a versioned JSON file of task definitions —
+  no ids, project bindings, registry state, or run history — and
+  `agents-cron import <file> [--dry-run]` creates each entry as a fresh task
+  bound to the current project, disabled until reviewed. An entry counts as
+  a duplicate only when name, prompt, and schedule all match, so importing
+  the same file twice adds nothing. `/schedule export [file] [--all]` and
+  `/schedule import <file>` bring the same to Pi.
+
 ## [0.13.2] - 2026-10-28
 
 ### Fixed

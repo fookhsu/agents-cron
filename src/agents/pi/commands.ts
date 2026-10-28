@@ -1,13 +1,19 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { readFile, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { readRun, listRunsForTask } from "../../runs.ts";
 import { runTask } from "../../runner.ts";
 import { normalizeChannelIds } from "../../notify/config.ts";
 import { schedulerPaths } from "../../paths.ts";
 import { parseDuration, parseScheduleSpec } from "../../scheduling.ts";
-import { addTask, clearTasks, listTasks, removeTask, requireTask, setTaskEnabled } from "../../task-service.ts";
+import { addTask, clearTasks, exportTasks, importTasks, listTasks, removeTask, requireTask, setTaskEnabled } from "../../task-service.ts";
+import { parseExportFile } from "../../task-export.ts";
 import type { RunRecord, ScheduleTask } from "../../types.ts";
 import { confirmMutation } from "./confirm.ts";
 import { readOwnChangelog } from "./update-notice.ts";
+
+/** The default file /schedule export writes: definitions only, review-friendly. */
+const DEFAULT_EXPORT_FILE = "agents-cron.tasks.json";
 
 export function registerCommands(pi: ExtensionAPI): void {
   pi.registerCommand("loop", {
@@ -113,6 +119,38 @@ export function registerCommands(pi: ExtensionAPI): void {
           return;
         }
 
+        if (action === "export") {
+          const rest = tokens.slice(1);
+          const all = rest.includes("--all");
+          const named = rest.filter((token) => token !== "--all")[0];
+          const target = named ? resolve(ctx.cwd, named) : join(ctx.cwd, DEFAULT_EXPORT_FILE);
+          const file = await exportTasks(ctx.cwd, all ? { all: true } : {});
+          await writeFile(target, `${JSON.stringify(file, null, 2)}\n`, "utf8");
+          ctx.ui.notify(`Exported ${file.tasks.length} task(s) to ${target}`, "info");
+          return;
+        }
+        if (action === "import") {
+          const file = tokens[1];
+          if (!file) throw new Error("Usage: /schedule import <file> — export one first with /schedule export [file]");
+          let raw: string;
+          try {
+            raw = await readFile(resolve(ctx.cwd, file), "utf8");
+          } catch (error) {
+            throw new Error(`Cannot read task export ${file}: ${(error as Error).message}`);
+          }
+          const parsed = parseExportFile(raw);
+          const report = await importTasks(ctx.cwd, parsed.tasks);
+          const lines = [`Imported ${report.created.length} task(s); all start disabled`];
+          for (const task of report.created) lines.push(`  created ${task.id} — ${task.name ?? previewPrompt(task.prompt)}`);
+          for (const skip of report.skipped) {
+            lines.push(`  skipped "${skip.entry.name ?? previewPrompt(skip.entry.prompt)}" — ${skip.reason}`);
+          }
+          for (const warning of report.warnings) lines.push(`Warning: ${warning}`);
+          if (report.created.length > 0) lines.push("Review the prompts, then enable one by one: /schedule enable <id>");
+          ctx.ui.notify(lines.join("\n"), "info");
+          return;
+        }
+
         if (action === "clear") {
           await confirmMutation(ctx, "Delete all scheduled tasks?");
           ctx.ui.notify(`Cleared ${await clearTasks(ctx.cwd)} task(s)`, "info");
@@ -199,6 +237,8 @@ const SCHEDULE_HELP = [
   "  runs <id>             list run records",
   "  show <id>             show a task's scheduling facts and prompt",
   "  open <runId>          show a run's Task Session path",
+  "  export [file] [--all] write task definitions as JSON (default agents-cron.tasks.json)",
+  "  import <file>         import definitions into this project; tasks start disabled",
   "  changelog             show the shipped changelog",
   "  clear                 delete all tasks",
   "  help                  show this help",
@@ -253,6 +293,10 @@ function parseReminder(args: string): { runAt: string; prompt: string } {
 function requireId(value: string | undefined, action: string): string {
   if (!value) throw new Error(`/schedule ${action} requires a task id`);
   return value;
+}
+
+function previewPrompt(prompt: string): string {
+  return prompt.length > 40 ? `${prompt.slice(0, 40)}…` : prompt;
 }
 
 export function formatTask(task: ScheduleTask): string {

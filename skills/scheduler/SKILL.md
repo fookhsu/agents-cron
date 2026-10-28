@@ -36,6 +36,8 @@ agents-cron add --prompt "<text>" (--at <iso> | --every <duration> | --cron "<ex
 agents-cron list [--json]        # current project's tasks first, then all others
 agents-cron show <taskId> [--json]  # one task in full, prompt included
 agents-cron enable <taskId> | disable <taskId> | remove <taskId>
+agents-cron export [--out <file>] [--all] [taskId...]   # definitions as JSON; import starts disabled
+agents-cron import <file> [--dry-run]
 agents-cron run <taskId>
 agents-cron prune --keep <n>     # all projects unless --project
 agents-cron dashboard [--port <n>]

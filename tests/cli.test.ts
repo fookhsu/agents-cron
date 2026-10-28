@@ -18,7 +18,7 @@ beforeEach(async () => {
   await saveRegistry([]);
 });
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -454,4 +454,72 @@ test("add warns when --notify-to names a channel the project has not configured"
   }
   assert.match(stdout.join("\n"), /Created task_/);
   assert.match(chunks.join(""), /no notification channel "ghost" in/);
+});
+
+// --- export / import (ADR 0009) ---
+
+test("export prints a versioned definitions file to stdout, or writes it with --out", async () => {
+  const dir = await project();
+  const { deps } = capture(dir, new FakeAgent());
+  await main(["add", "--prompt", "check CI", "--every", "5m", "--name", "watch"], deps);
+
+  const printed = capture(dir, new FakeAgent());
+  assert.equal(await main(["export"], printed.deps), 0);
+  const file = JSON.parse(printed.stdout.join("\n"));
+  assert.equal(file.version, 1);
+  assert.equal(file.tasks.length, 1);
+  assert.equal(file.tasks[0].name, "watch");
+  assert.equal("id" in file.tasks[0], false);
+
+  const target = join(dir, "exports", "tasks.json");
+  const written = capture(dir, new FakeAgent());
+  assert.equal(await main(["export", "--out", target], written.deps), 0);
+  assert.match(written.stdout.join("\n"), /Wrote 1 task/);
+  const fromDisk = JSON.parse(await readFile(target, "utf8"));
+  assert.equal(fromDisk.tasks[0].prompt, "check CI");
+});
+
+test("import creates disabled tasks bound to the current project; --dry-run writes nothing", async () => {
+  const source = await project();
+  const target = await project();
+  const seed = capture(source, new FakeAgent());
+  await main(["add", "--prompt", "p", "--every", "5m", "--name", "watch"], seed.deps);
+  const file = join(source, "tasks.export.json");
+  await main(["export", "--out", file], seed.deps);
+
+  const preview = capture(target, new FakeAgent());
+  assert.equal(await main(["import", file, "--dry-run"], preview.deps), 0);
+  assert.match(preview.stdout.join("\n"), /Would import 1 task/);
+  const previewTasks = JSON.parse((await captureJson(preview.deps)).join("\n")).filter((task: { projectDir: string }) => task.projectDir === target);
+  assert.equal(previewTasks.length, 0); // dry-run left the registry alone
+
+  const applied = capture(target, new FakeAgent());
+  assert.equal(await main(["import", file], applied.deps), 0);
+  assert.match(applied.stdout.join("\n"), /Imported 1 task\(s\)/);
+  assert.match(applied.stdout.join("\n"), /all start disabled/);
+
+  const imported = JSON.parse((await captureJson(applied.deps)).join("\n")).filter((task: { projectDir: string }) => task.projectDir === target);
+  assert.equal(imported.length, 1);
+  assert.equal(imported[0].enabled, false);
+  assert.equal(imported[0].projectDir, target);
+
+  // Importing the same file again skips the duplicate instead of doubling it.
+  const again = capture(target, new FakeAgent());
+  await main(["import", file], again.deps);
+  const text = again.stdout.join("\n");
+  assert.match(text, /skipped .* duplicate/);
+  assert.match(text, /Imported 0 task\(s\)/);
+});
+
+test("import of a missing or malformed file exits 2 with the offending path", async () => {
+  const dir = await project();
+  const missing = capture(dir, new FakeAgent());
+  assert.equal(await main(["import", join(dir, "nope.json")], missing.deps), 2);
+  assert.match(missing.stderr.join("\n"), /nope\.json/);
+
+  const bad = join(dir, "bad.json");
+  await writeFile(bad, '{"version": 9, "exportedAt": "x", "tasks": []}', "utf8");
+  const parsed = capture(dir, new FakeAgent());
+  assert.equal(await main(["import", bad], parsed.deps), 2);
+  assert.match(parsed.stderr.join("\n"), /version: 9/);
 });

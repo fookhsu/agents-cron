@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { addTask, listTasks, removeTask, setTaskEnabled } from "../src/task-service.ts";
+import { addTask, exportTasks, importTasks, listTasks, removeTask, setTaskEnabled } from "../src/task-service.ts";
 import { loadRegistry } from "../src/registry.ts";
 import { importLegacyStore } from "../src/migration.ts";
 import { saveTasks } from "../src/storage.ts";
@@ -208,6 +208,110 @@ test("listTasks orders the project view: local first, then other projects by pat
         ["b1", "B"],
       ].map(([prompt, tag]) => [prompt, tag]),
     );
+  } finally {
+    restore();
+  }
+});
+
+// --- Task export and import (ADR 0009) ---
+
+test("exportTasks keeps the current project's definitions only, unless all", async () => {
+  const restore = await withRegistryHome();
+  try {
+    const local = await project();
+    const other = await project();
+    const localTask = await addTask(local, { prompt: "local p", name: "watch", schedule: { kind: "interval", every: "5m" } }, NOW);
+    await addTask(other, { prompt: "other p", schedule: { kind: "interval", every: "5m" } }, NOW);
+
+    const localFile = await exportTasks(local, {}, NOW);
+    assert.deepEqual(localFile.tasks.map((task) => task.prompt), ["local p"]);
+    assert.equal("id" in localFile.tasks[0], false);
+    assert.equal("projectDir" in localFile.tasks[0], false);
+    assert.equal(localFile.tasks[0].name, "watch");
+
+    const allFile = await exportTasks(local, { all: true }, NOW);
+    assert.deepEqual(allFile.tasks.map((task) => task.prompt).sort(), ["local p", "other p"]);
+
+    const picked = await exportTasks(local, { ids: [localTask.id] }, NOW);
+    assert.deepEqual(picked.tasks.map((task) => task.prompt), ["local p"]);
+  } finally {
+    restore();
+  }
+});
+
+test("importTasks rebinds to the importing project: new ids, disabled, fresh nextRunAt", async () => {
+  const restore = await withRegistryHome();
+  try {
+    const source = await project();
+    const target = await project();
+    const sourceTask = await addTask(source, { prompt: "p", schedule: { kind: "interval", every: "5m" }, name: "watch" }, NOW);
+    const file = await exportTasks(source, {}, NOW);
+
+    const report = await importTasks(target, file.tasks, { now: new Date("2026-10-28T09:00:00.000Z") });
+
+    assert.equal(report.created.length, 1);
+    const imported = report.created[0];
+    assert.notEqual(imported.id, sourceTask.id); // a fresh id, never the exported identity
+    assert.equal(imported.name, "watch");
+    assert.equal(imported.projectDir, target);
+    assert.equal(imported.enabled, false);
+    assert.equal(imported.nextRunAt, "2026-10-28T09:05:00.000Z");
+    assert.equal(imported.createdAt, "2026-10-28T09:00:00.000Z");
+    // Registry state does not travel: no counters from the source task.
+    assert.equal(imported.successCount, undefined);
+    // Export copies, never moves: the source task stays put alongside the import.
+    assert.deepEqual((await loadRegistry()).map((task) => task.projectDir).sort(), [source, target].sort());
+  } finally {
+    restore();
+  }
+});
+
+test("importTasks skips an entry only when name, prompt, and schedule all match", async () => {
+  const restore = await withRegistryHome();
+  try {
+    const project1 = await project();
+    const interval5 = { kind: "interval", everyMs: 300_000 } as const;
+    await addTask(project1, { prompt: "p", name: "watch", schedule: { kind: "interval", every: "5m" } }, NOW);
+
+    const report = await importTasks(project1, [
+      { prompt: "p", name: "watch", schedule: interval5 },          // all three match: skipped
+      { prompt: "p", name: "other", schedule: interval5 },          // different name: created
+      { prompt: "p", name: "watch", schedule: { kind: "interval", everyMs: 600_000 } }, // different schedule: created
+    ], { now: NOW });
+
+    assert.equal(report.created.length, 2);
+    assert.equal(report.skipped.length, 1);
+    assert.match(report.skipped[0].reason, /duplicate/);
+  } finally {
+    restore();
+  }
+});
+
+test("importTasks warns about unknown channels and past once schedules without blocking", async () => {
+  const restore = await withRegistryHome();
+  try {
+    const project1 = await project();
+    const report = await importTasks(project1, [
+      { prompt: "p", schedule: { kind: "once", runAt: "2026-10-01T00:00:00.000Z" }, notifyTo: ["feishu"] },
+    ], { now: NOW });
+
+    assert.equal(report.created.length, 1);
+    assert.equal(report.warnings.length, 2);
+    assert.match(report.warnings.join("\n"), /channel "feishu"/);
+    assert.match(report.warnings.join("\n"), /in the past/);
+  } finally {
+    restore();
+  }
+});
+
+test("importTasks dry-run previews without writing the registry", async () => {
+  const restore = await withRegistryHome();
+  try {
+    const project1 = await project();
+    const report = await importTasks(project1, [{ prompt: "p", schedule: { kind: "interval", everyMs: 300_000 } }], { now: NOW, dryRun: true });
+
+    assert.equal(report.created.length, 1);
+    assert.deepEqual(await loadRegistry(), []);
   } finally {
     restore();
   }

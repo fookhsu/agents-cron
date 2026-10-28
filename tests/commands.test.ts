@@ -46,7 +46,7 @@ test("/schedule help shows every action", async () => {
 
   assert.equal(notices.length, 1);
   assert.equal(notices[0].level, "info");
-  for (const action of ["list", "add", "enable", "disable", "run", "remove", "runs", "show", "open", "clear", "help"]) {
+  for (const action of ["list", "add", "enable", "disable", "run", "remove", "runs", "show", "open", "export", "import", "clear", "help"]) {
     assert.match(notices[0].message, new RegExp(`\\b${action}\\b`), `help mentions ${action}`);
   }
 });
@@ -228,4 +228,53 @@ test("an invalid trailing --notify value errors without creating a task", async 
     else delete process.env.AGENTS_CRON_HOME;
     await rm(home, { recursive: true, force: true });
   }
+});
+
+test("/schedule export writes agents-cron.tasks.json and /schedule import round-trips it", async () => {
+  const { mkdtemp, rm, readFile } = await import("node:fs/promises");
+  const { existsSync } = await import("node:fs");
+  const home = await mkdtemp(join(tmpdir(), "agents-cron-port-"));
+  const previous = process.env.AGENTS_CRON_HOME;
+  process.env.AGENTS_CRON_HOME = home;
+  const { commands } = stubPi();
+  const source = stubCtx();
+  const target = stubCtx();
+  try {
+    const { saveRegistry } = await import("../src/registry.ts");
+    await saveRegistry([]);
+    await commands.get("schedule")!.handler('add 5m check CI', source.ctx);
+
+    await commands.get("schedule")!.handler("export", source.ctx);
+
+    const file = join((source.ctx as { cwd: string }).cwd, "agents-cron.tasks.json");
+    assert.ok(existsSync(file), "export wrote the default file");
+    const exported = JSON.parse(await readFile(file, "utf8"));
+    assert.equal(exported.version, 1);
+    assert.equal(exported.tasks[0].prompt, "check CI");
+    assert.equal("id" in exported.tasks[0], false);
+
+    await commands.get("schedule")!.handler(`import ${file}`, target.ctx);
+
+    const { listTasks } = await import("../src/task-service.ts");
+    const [task] = (await listTasks((target.ctx as { cwd: string }).cwd))
+      .filter((entry) => entry.projectDir === (target.ctx as { cwd: string }).cwd);
+    assert.ok(task, "the import created a task in the target project");
+    assert.equal(task.prompt, "check CI");
+    assert.equal(task.enabled, false); // imports start disabled
+  } finally {
+    if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
+    else delete process.env.AGENTS_CRON_HOME;
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("/schedule import names the file when it cannot be read", async () => {
+  const { commands } = stubPi();
+  const { ctx, notices } = stubCtx();
+
+  await commands.get("schedule")!.handler("import /definitely/not/here.json", ctx);
+
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].level, "error");
+  assert.match(notices[0].message, /not\/here\.json/);
 });

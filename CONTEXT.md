@@ -38,6 +38,14 @@ _Avoid_: Global lock, mutex.
 The per-task scheduling facts kept in the registry: `nextRunAt`, `enabled`, `lastRunAt`, `lastStatus`, and the run counters.
 _Avoid_: Task status, metadata, cache.
 
+**Task Definition**:
+The portable half of a schedule task: prompt, schedule, name, agent settings, and notification routing. All a Task Export carries.
+_Avoid_: Task config, task spec, task payload.
+
+**Task Export**:
+A versioned JSON file of task definitions with no ids, project bindings, or registry state. Importing rebinds every entry to the current Project Directory as a disabled task.
+_Avoid_: Backup (implies run history), snapshot, clone.
+
 **Run Artifacts**:
 The run records, Markdown run reports, and session transcripts a project stores locally. Append-only; never carry scheduling state.
 _Avoid_: Results, output, logs.
