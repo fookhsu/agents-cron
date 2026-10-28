@@ -1,0 +1,64 @@
+name: Tag releases
+
+# Every chore(release) commit bumps package.json's version; this walks the
+# pushed range, tags each version-bump commit as v<X.Y.Z>, and pushes the
+# tag. Idempotent — existing tags are skipped, so re-runs and repushes are
+# free. ci.yml stays read-only; only this job may write refs.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # walk the pushed range, not just HEAD
+
+      - name: Tag each version bump in the pushed range
+        run: |
+          set -euo pipefail
+
+          # A new branch's first push has no before; tag HEAD's version only.
+          BEFORE="${{ github.event.before }}"
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            RANGE=""
+          else
+            RANGE="$BEFORE..$GITHUB_SHA"
+          fi
+
+          # Oldest first, so a batch push tags every release in order.
+          if [ -n "$RANGE" ]; then
+            COMMITS=$(git rev-list --reverse "$RANGE")
+          else
+            COMMITS=$GITHUB_SHA
+          fi
+
+          for commit in $COMMITS; do
+            version=$(git show "$commit":package.json | jq -r .version)
+            parent=$(git rev-parse --quiet --verify "$commit^" 2>/dev/null || echo "")
+            if [ -n "$parent" ]; then
+              parent_version=$(git show "$parent":package.json | jq -r .version)
+            else
+              parent_version="" # the root commit carries every version it has
+            fi
+
+            if [ "$version" = "$parent_version" ]; then
+              continue # not the commit that bumped the version
+            fi
+
+            tag="v$version"
+            if git rev-parse --quiet --verify "refs/tags/$tag" >/dev/null; then
+              echo "::notice::$tag already exists; skipping"
+              continue
+            fi
+
+            git tag -a "$tag" -m "$version" "$commit"
+            git push origin "refs/tags/$tag"
+            echo "::notice::tagged $tag at ${commit:0:7}"
+          done
