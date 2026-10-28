@@ -14,7 +14,7 @@ import type { ChannelId, RunNotification } from "./notify/types.ts";
 import { schedulerPaths } from "./paths.ts";
 import { loadRegistry } from "./registry.ts";
 import { listRuns, pruneRuns } from "./runs.ts";
-import { runDue, runTask, TaskNotFoundError } from "./runner.ts";
+import { runDue, runTask, TaskNotFoundError, DEFAULT_KEEP_RUNS } from "./runner.ts";
 import type { ScheduleInput } from "./scheduling.ts";
 import { addTask, clearTasks, exportTasks, importTasks, listTasks, removeTask, requireTask, setTaskEnabled } from "./task-service.ts";
 import { parseExportFile } from "./task-export.ts";
@@ -29,9 +29,10 @@ const USAGE = [
   "  show <taskId> [--json]                  Show one task: scheduling facts and its prompt",
   "  add --prompt <text> (--at <iso>|--every <duration>|--cron <expr>) [options]",
   "  enable <taskId> | disable <taskId> | remove <taskId>",
+  "  clear                                Remove every task bound to the current project",
   "  export [--out <file>] [--all] [taskId...]  Write task definitions as JSON (stdout, or --out)",
   "  import <file> [--dry-run]                    Import definitions here; new tasks start disabled",
-  "  prune --keep <n> [--project <path>]     Keep the newest n runs per task",
+  "  prune [--keep <n>] [--project <path>]   Keep the newest n runs per task (default 20)",
   "  dashboard [--port <n>] [--project <path>]   Serve a local read-only dashboard",
   "  migrate-sessions [--dry-run] [--project <path>]   Carry legacy transcripts into Pi's session store",
   "  test-notify [--channel <id>] [--project <path>]   Send a test notification",
@@ -390,7 +391,7 @@ async function commandPrune(
   flags: Map<string, string | boolean>,
   out: (line: string) => void,
 ): Promise<number> {
-  const keep = Number(stringFlag(flags, "keep") ?? "20");
+  const keep = Number(stringFlag(flags, "keep") ?? String(DEFAULT_KEEP_RUNS));
   if (!Number.isInteger(keep) || keep < 0) throw new Error("--keep must be a non-negative integer");
   const stores = explicitProject
     ? [schedulerPaths(project)]

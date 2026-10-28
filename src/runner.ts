@@ -13,7 +13,7 @@ import type { RunRecord, ScheduleTask, Trigger } from "./types.ts";
 
 const DEFAULT_RUN_TIMEOUT_MINUTES = 30;
 const DEFAULT_MISSED_GRACE_MINUTES = 5;
-const DEFAULT_KEEP_RUNS = 20;
+export const DEFAULT_KEEP_RUNS = 20;
 
 export type RunnerOptions = {
   /**

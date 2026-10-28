@@ -20,20 +20,7 @@ export function registerCommands(pi: ExtensionAPI): void {
     description: 'Create a recurring task: /loop 30m check CI, or /loop "*/5 * * * *" check CI --to feishu',
     handler: async (args, ctx) => {
       await guard(ctx, async () => {
-        const flags = parseTrailingFlags(args);
-        const match = /^\s*("[^"]*"|\S+)\s+([\s\S]+?)\s*$/.exec(flags.rest);
-        if (!match) {
-          throw new Error(
-            'Usage: /loop <duration|cron> <prompt> — duration is a number + unit (30s, 5m, 2h, 1d); cron is quoted like "*/5 * * * *" or a nickname like @daily',
-          );
-        }
-        const task = await addTask(ctx.cwd, {
-          prompt: match[2],
-          schedule: parseScheduleSpec(match[1]),
-          ...(flags.notify ? { notify: flags.notify } : {}),
-          ...(flags.to ? { notifyTo: flags.to } : {}),
-        });
-        ctx.ui.notify(`Created ${task.id}; next run ${formatDate(task.nextRunAt)}`, "info");
+        await addFromSpec(ctx, "/loop", args);
       });
     },
   });
@@ -73,20 +60,7 @@ export function registerCommands(pi: ExtensionAPI): void {
           return;
         }
         if (action === "add") {
-          const flags = parseTrailingFlags(args.replace(/^\s*add\s+/, ""));
-          const match = /^\s*("[^"]*"|\S+)\s+([\s\S]+?)\s*$/.exec(flags.rest);
-          if (!match) {
-            throw new Error(
-              'Usage: /schedule add <duration|cron> <prompt> — duration is a number + unit (30s, 5m, 2h, 1d); cron is quoted like "*/5 * * * *" or a nickname like @daily',
-            );
-          }
-          const task = await addTask(ctx.cwd, {
-            prompt: match[2],
-            schedule: parseScheduleSpec(match[1]),
-            ...(flags.notify ? { notify: flags.notify } : {}),
-            ...(flags.to ? { notifyTo: flags.to } : {}),
-          });
-          ctx.ui.notify(`Created ${task.id}; next run ${formatDate(task.nextRunAt)}`, "info");
+          await addFromSpec(ctx, "/schedule add", args.replace(/^\s*add\s+/, ""));
           return;
         }
         if (action === "runs") {
@@ -198,6 +172,28 @@ type CommandContext = Parameters<Parameters<ExtensionAPI["registerCommand"]>[1][
 type NotifyLevel = "always" | "error" | "never";
 
 type TrailingFlags = { to?: string[]; notify?: NotifyLevel; rest: string };
+
+/**
+ * The one creation path behind /loop and /schedule add: spec first, prompt
+ * after, trailing routing flags allowed. The usage error names the command
+ * the user actually typed.
+ */
+async function addFromSpec(ctx: CommandContext, command: string, args: string): Promise<void> {
+  const flags = parseTrailingFlags(args);
+  const match = /^\s*("[^"]*"|\S+)\s+([\s\S]+?)\s*$/.exec(flags.rest);
+  if (!match) {
+    throw new Error(
+      `Usage: ${command} <duration|cron> <prompt> — duration is a number + unit (30s, 5m, 2h, 1d); cron is quoted like "*/5 * * * *" or a nickname like @daily`,
+    );
+  }
+  const task = await addTask(ctx.cwd, {
+    prompt: match[2],
+    schedule: parseScheduleSpec(match[1]),
+    ...(flags.notify ? { notify: flags.notify } : {}),
+    ...(flags.to ? { notifyTo: flags.to } : {}),
+  });
+  ctx.ui.notify(`Created ${task.id}; next run ${formatDate(task.nextRunAt)}`, "info");
+}
 
 /**
  * Strips trailing `--to <id,id>` and `--notify <level>` flags off a command's

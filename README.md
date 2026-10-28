@@ -171,9 +171,10 @@ agents-cron list [--json]                              # current project first, 
 agents-cron show <taskId> [--json]                     # one task in full, prompt included
 agents-cron add --prompt <text> (--at <iso>|--every <duration>|--cron <expr>) [--agent <id>] [options]
 agents-cron enable <taskId> | disable <taskId> | remove <taskId>
+agents-cron clear                                      # remove every task bound to the current project
 agents-cron export [--out <file>] [--all] [taskId...]  # task definitions as JSON
 agents-cron import <file> [--dry-run]                  # new tasks bind here, start disabled
-agents-cron prune --keep <n>                           # all projects unless --project
+agents-cron prune [--keep <n>]                         # all projects unless --project; default keep 20
 agents-cron dashboard [--port <n>]                     # global, grouped by project
 agents-cron migrate-sessions [--dry-run] [--project <path>]   # legacy transcripts into Pi's store
 agents-cron test-notify [--channel <id>]

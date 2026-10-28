@@ -20,6 +20,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the same file twice adds nothing. `/schedule export [file] [--all]` and
   `/schedule import <file>` bring the same to Pi.
 
+### Fixed
+
+- The command surface now matches reality: `clear` is documented (it
+  existed but was absent from usage and the README), `prune --keep` is
+  shown as the optional flag it always was (default 20, shared with the
+  runner's auto-prune), and `/loop` and `/schedule add` share one creation
+  path instead of two copies of the same logic.
+
 ## [0.13.2] - 2026-10-28
 
 ### Fixed
