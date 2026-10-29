@@ -50,7 +50,7 @@ export function parseDuration(value: string): number {
 }
 
 /** croner's nicknames, already expanded to the five-field forms they stand for. */
-const CRON_NICKNAMES: Record<string, string> = {
+export const CRON_NICKNAMES: Record<string, string> = {
   "@yearly": "0 0 1 1 *",
   "@annually": "0 0 1 1 *",
   "@monthly": "0 0 1 * *",

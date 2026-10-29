@@ -7,6 +7,20 @@ new one as an in-terminal notice; `/schedule changelog` shows this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Argument completion for the Pi slash commands: `/schedule ` suggests
+  every action, then real task ids (`enable`, `disable`, `run`, `remove`,
+  `show`, `runs`) and recent run ids (`open`) read from the store — foreign
+  projects' tasks say where they live; `/loop` and `/schedule add` suggest
+  cron nicknames while the spec starts with `@`; `/loop`, `/remind`, and
+  `/schedule add` complete trailing `--to`/`--notify-to` (channel ids from
+  the project's notify config, comma-list aware) and `--notify` (its three
+  levels). Completion never throws and never writes — a broken store just
+  means no suggestions.
+
 ## [0.14.0] - 2026-10-28
 
 ### Added

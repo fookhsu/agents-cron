@@ -8,16 +8,28 @@ import { schedulerPaths } from "../../paths.ts";
 import { parseDuration, parseScheduleSpec } from "../../scheduling.ts";
 import { addTask, clearTasks, exportTasks, importTasks, listTasks, removeTask, requireTask, setTaskEnabled } from "../../task-service.ts";
 import { parseExportFile } from "../../task-export.ts";
-import type { RunRecord, ScheduleTask } from "../../types.ts";
 import { confirmMutation } from "./confirm.ts";
+import {
+  remindArgumentCompletions,
+  rememberProjectCwd,
+  SCHEDULE_ACTIONS,
+  scheduleArgumentCompletions,
+  taskSpecArgumentCompletions,
+} from "./completions.ts";
+import { formatDate, formatRun, formatTask, previewPrompt } from "./format.ts";
 import { readOwnChangelog } from "./update-notice.ts";
 
 /** The default file /schedule export writes: definitions only, review-friendly. */
 const DEFAULT_EXPORT_FILE = "agents-cron.tasks.json";
 
 export function registerCommands(pi: ExtensionAPI): void {
+  // Completions run while the user types, with no ctx; session_start (and
+  // every command invocation, via guard) is where the project dir is learned.
+  pi.on("session_start", (_event, ctx) => rememberProjectCwd(ctx.cwd));
+
   pi.registerCommand("loop", {
     description: 'Create a recurring task: /loop 30m check CI, or /loop "*/5 * * * *" check CI --to feishu',
+    getArgumentCompletions: taskSpecArgumentCompletions,
     handler: async (args, ctx) => {
       await guard(ctx, async () => {
         await addFromSpec(ctx, "/loop", args);
@@ -27,6 +39,7 @@ export function registerCommands(pi: ExtensionAPI): void {
 
   pi.registerCommand("remind", {
     description: "Create a one-time task: /remind in 45m check the PR --to feishu --notify always",
+    getArgumentCompletions: remindArgumentCompletions,
     handler: async (args, ctx) => {
       await guard(ctx, async () => {
         const flags = parseTrailingFlags(args);
@@ -44,6 +57,7 @@ export function registerCommands(pi: ExtensionAPI): void {
 
   pi.registerCommand("schedule", {
     description: "List and manage scheduled tasks — /schedule help shows usage",
+    getArgumentCompletions: scheduleArgumentCompletions,
     handler: async (args, ctx) => {
       await guard(ctx, async () => {
         const tokens = args.trim().split(/\s+/).filter(Boolean);
@@ -211,20 +225,9 @@ export function parseTrailingFlags(args: string): TrailingFlags {
 
 const SCHEDULE_HELP = [
   "Usage: /schedule <action> [args]",
-  "  list                  list tasks (default action)",
-  "  add <spec> <prompt>   create a task; spec: 30m, @daily, or \"0 9 * * 1-5\"",
-  "  enable <id>           resume a paused task",
-  "  disable <id>          pause a task",
-  "  run <id>              run a task now; its schedule is untouched",
-  "  remove <id>           delete a task",
-  "  runs <id>             list run records",
-  "  show <id>             show a task's scheduling facts and prompt",
-  "  open <runId>          show a run's Task Session path",
-  "  export [file] [--all] write task definitions as JSON (default agents-cron.tasks.json)",
-  "  import <file>         import definitions into this project; tasks start disabled",
-  "  changelog             show the shipped changelog",
-  "  clear                 delete all tasks",
-  "  help                  show this help",
+  ...SCHEDULE_ACTIONS.map(
+    (action) => `  ${action.usage.padEnd(Math.max(...SCHEDULE_ACTIONS.map((a) => a.usage.length)) + 1)}${action.description}`,
+  ),
   "Trailing flags on /loop, /remind, and /schedule add:",
   "  --to <id,id>          route this task's notifications to those channels",
   "  --notify-to <id,id>   alias of --to (the CLI spelling)",
@@ -233,6 +236,7 @@ const SCHEDULE_HELP = [
 ].join("\n");
 
 async function guard(ctx: CommandContext, run: () => Promise<void>): Promise<void> {
+  rememberProjectCwd(ctx.cwd);
   try {
     await run();
   } catch (error) {
@@ -276,27 +280,4 @@ function parseReminder(args: string): { runAt: string; prompt: string } {
 function requireId(value: string | undefined, action: string): string {
   if (!value) throw new Error(`/schedule ${action} requires a task id`);
   return value;
-}
-
-function previewPrompt(prompt: string): string {
-  return prompt.length > 40 ? `${prompt.slice(0, 40)}…` : prompt;
-}
-
-export function formatTask(task: ScheduleTask): string {
-  return `${task.id} [${task.enabled ? "enabled" : "disabled"}] ${task.name ?? "-"} — ${formatSchedule(task)} — next ${formatDate(task.nextRunAt)}`;
-}
-
-export function formatRun(run: RunRecord): string {
-  const when = run.finishedAt ?? run.startedAt;
-  return `${run.runId} [${run.status}] ${run.trigger} — ${formatDate(when)}${run.sessionFile ? ` — ${run.sessionFile}` : ""}`;
-}
-
-function formatSchedule(task: ScheduleTask): string {
-  if (task.schedule.kind === "interval") return `every ${task.schedule.everyMs}ms`;
-  if (task.schedule.kind === "cron") return `cron ${task.schedule.expression}`;
-  return `once ${task.schedule.runAt}`;
-}
-
-function formatDate(value: string | undefined): string {
-  return value ? new Date(value).toLocaleString() : "never";
 }

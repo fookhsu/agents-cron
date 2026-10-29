@@ -8,16 +8,27 @@ import { registerCommands } from "../src/agents/pi/commands.ts";
 
 type Registered = {
   description: string;
+  getArgumentCompletions?: (args: string) => Promise<unknown[] | null> | unknown[] | null;
   handler: (args: string, ctx: unknown) => Promise<void>;
 };
 
-function stubPi(): { api: ExtensionAPI; commands: Map<string, Registered> } {
+type EventHandler = (event: unknown, ctx: unknown) => void | Promise<void>;
+
+function stubPi(): {
+  api: ExtensionAPI;
+  commands: Map<string, Registered>;
+  events: Map<string, EventHandler[]>;
+} {
   const commands = new Map<string, Registered>();
+  const events = new Map<string, EventHandler[]>();
   const api = {
     registerCommand: (name: string, definition: Registered) => commands.set(name, definition),
+    on: (event: string, handler: EventHandler) => {
+      events.set(event, [...(events.get(event) ?? []), handler]);
+    },
   } as unknown as ExtensionAPI;
   registerCommands(api);
-  return { api, commands };
+  return { api, commands, events };
 }
 
 function stubCtx(): { ctx: unknown; notices: { message: string; level: string }[] } {
@@ -36,6 +47,22 @@ test("registers the schedule command and mentions help in its description", () =
 
   assert.ok(commands.has("schedule"));
   assert.match(commands.get("schedule")!.description, /help/);
+});
+
+test("every command registers its argument completions and learns the cwd from session_start", async () => {
+  const { commands, events } = stubPi();
+
+  for (const name of ["loop", "remind", "schedule"]) {
+    assert.equal(typeof commands.get(name)!.getArgumentCompletions, "function", `${name} completes arguments`);
+  }
+
+  const handlers = events.get("session_start") ?? [];
+  assert.ok(handlers.length > 0, "subscribes to session_start");
+  await handlers[0]({ type: "session_start", reason: "startup" }, { cwd: "/some/project" });
+  // Until a real project has tasks, the remembered cwd still routes /schedule
+  // to the action list instead of bailing with null.
+  const items = await commands.get("schedule")!.getArgumentCompletions!("rem");
+  assert.ok(Array.isArray(items) && items.some((item) => (item as { value: string }).value === "remove"));
 });
 
 test("/schedule help shows every action", async () => {

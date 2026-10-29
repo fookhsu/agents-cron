@@ -101,7 +101,7 @@ trigger `manual` and leave its schedule untouched.
 - Crash recovery: stale runs are reclaimed on the next invocation
 - Per-task and per-project configuration overrides
 - Per-run Markdown reports next to the run records — what ran, how it went, where the transcript lives
-- Agent tool plus slash commands for management
+- Agent tool plus slash commands for management, with argument completion: `/schedule ` suggests actions and real task/run ids, `/loop` suggests cron nicknames (`@daily`, …), and every creation command completes its trailing `--to <channel>` / `--notify <level>` flags from the project's notify config
 
 ## Install
 
