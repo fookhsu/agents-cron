@@ -24,6 +24,10 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Annotated tags need an identity; runners ship none.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           # A new branch's first push has no before; tag HEAD's version only.
           BEFORE="${{ github.event.before }}"
           if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
