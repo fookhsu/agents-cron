@@ -152,3 +152,85 @@ test("schedule_task add accepts notify level and notifyTo routing", async () => 
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+test("schedule_task update reconfigures a task's model and thinking", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const home = await mkdtemp(join(tmpdir(), "agents-cron-toolset-"));
+  const previous = process.env.AGENTS_CRON_HOME;
+  process.env.AGENTS_CRON_HOME = home;
+  const cwd = await mkdtemp(join(tmpdir(), "agents-cron-toolset-cwd-"));
+  try {
+    const { saveRegistry } = await import("../src/registry.ts");
+    await saveRegistry([]);
+    const { addTask } = await import("../src/task-service.ts");
+    const task = await addTask(cwd, { prompt: "Check the CI", schedule: { kind: "interval", every: "30m" } });
+
+    const outcome = await captureTool().execute(
+      "call",
+      { action: "update", id: task.id, model: "anthropic/claude-opus-4-5", thinking: "high" },
+      undefined,
+      undefined,
+      { cwd } as never,
+    );
+
+    const text = outcome.content
+      .filter((part): part is { type: "text"; text: string } => part.type === "text")
+      .map((part) => part.text)
+      .join("");
+    assert.match(text, new RegExp(`Updated ${task.id}`));
+    assert.match(text, /model: anthropic\/claude-opus-4-5/);
+    assert.match(text, /thinking: high/);
+    const updated = outcome.details as { model?: string; thinking?: string };
+    assert.equal(updated.model, "anthropic/claude-opus-4-5");
+    assert.equal(updated.thinking, "high");
+
+    // Empty strings clear the overrides back to the project and user defaults.
+    const cleared = await captureTool().execute(
+      "call",
+      { action: "update", id: task.id, model: "", thinking: "" },
+      undefined,
+      undefined,
+      { cwd } as never,
+    );
+    const gone = cleared.details as { model?: string; thinking?: string };
+    assert.equal("model" in gone, false);
+    assert.equal("thinking" in gone, false);
+  } finally {
+    if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
+    else delete process.env.AGENTS_CRON_HOME;
+    await rm(home, { recursive: true, force: true });
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("schedule_task update rejects an empty patch and a bad thinking level", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const home = await mkdtemp(join(tmpdir(), "agents-cron-toolbad-"));
+  const previous = process.env.AGENTS_CRON_HOME;
+  process.env.AGENTS_CRON_HOME = home;
+  const cwd = await mkdtemp(join(tmpdir(), "agents-cron-toolbad-cwd-"));
+  try {
+    const { saveRegistry } = await import("../src/registry.ts");
+    await saveRegistry([]);
+    const { addTask } = await import("../src/task-service.ts");
+    const task = await addTask(cwd, { prompt: "Check the CI", schedule: { kind: "interval", every: "30m" } });
+
+    await assert.rejects(
+      captureTool().execute("call", { action: "update", id: task.id }, undefined, undefined, { cwd } as never),
+      /set requires at least one of/,
+    );
+    await assert.rejects(
+      captureTool().execute("call", { action: "update", id: task.id, thinking: "deep" }, undefined, undefined, { cwd } as never),
+      /--thinking must be one of/,
+    );
+  } finally {
+    if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
+    else delete process.env.AGENTS_CRON_HOME;
+    await rm(home, { recursive: true, force: true });
+    await rm(cwd, { recursive: true, force: true });
+  }
+});

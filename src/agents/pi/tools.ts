@@ -5,12 +5,13 @@ import { schedulerPaths } from "../../paths.ts";
 import { listRunsForTask } from "../../runs.ts";
 import { runTask } from "../../runner.ts";
 import type { ScheduleInput } from "../../scheduling.ts";
-import { addTask, clearTasks, listTasks, removeTask, requireTask, setTaskEnabled } from "../../task-service.ts";
+import { addTask, clearTasks, describeOverrides, listTasks, removeTask, requireTask, setTaskEnabled, updateTask, type TaskPatch } from "../../task-service.ts";
 import type { RunRecord, ScheduleTask } from "../../types.ts";
 import { confirmMutation } from "./confirm.ts";
 
 const actionSchema = StringEnum([
   "add",
+  "update",
   "list",
   "show",
   "enable",
@@ -48,6 +49,7 @@ export function registerTools(pi: ExtensionAPI): void {
       "Scheduled tasks are project-scoped and run in isolated Task Sessions, not in the user's session.",
       "Do not create duplicate tasks when an existing task already represents the same request.",
       "Only create a task once the user has expressed its timing (a date/time, an interval, or a cron expression); if the timing is missing or ambiguous, ask the user to clarify — never guess a schedule.",
+      "When the user wants a task on a specific model or thinking level, pass model and thinking (update changes them later on an existing task); thinking accepts off, minimal, low, medium, high, xhigh, max.",
       "When the user wants to perceive a task's output, resolve its notification before creating it: route only to channel ids that exist in the project's .agents/cron/config.json, and set the level with notify.",
       "After creating a task, repeat its id and next run time back to the user so they can verify or undo it.",
     ],
@@ -56,17 +58,39 @@ export function registerTools(pi: ExtensionAPI): void {
       id: Type.Optional(Type.String()),
       name: Type.Optional(Type.String()),
       prompt: Type.Optional(Type.String()),
-      agent: Type.Optional(Type.String()),
-      model: Type.Optional(Type.String()),
-      thinking: Type.Optional(Type.String()),
-      cwd: Type.Optional(Type.String()),
-      tools: Type.Optional(Type.Array(Type.String())),
+      agent: Type.Optional(
+        Type.String({ description: "Agent adapter id: pi, claude, or codex. In update, an empty string clears the override." }),
+      ),
+      model: Type.Optional(
+        Type.String({
+          description:
+            "Model id for this task's runs, e.g. anthropic/claude-opus-4-5 or the :level shorthand sonnet:high. In update, an empty string clears the override.",
+        }),
+      ),
+      thinking: Type.Optional(
+        Type.String({
+          description:
+            "Thinking level for the pi agent: off, minimal, low, medium, high, xhigh, max. Ignored by claude and codex. In update, an empty string clears the override.",
+        }),
+      ),
+      cwd: Type.Optional(
+        Type.String({ description: "Working directory for the run, relative to the project. In update, an empty string clears the override." }),
+      ),
+      tools: Type.Optional(
+        Type.Array(Type.String(), {
+          description: "Tool allowlist. In update, an empty array clears the override so runs use the agent's default tool set.",
+        }),
+      ),
       notify: Type.Optional(
-        StringEnum(["always", "error", "never"] as const, { description: "When this task's runs produce notifications; overrides the project default." }),
+        Type.Union([
+          StringEnum(["always", "error", "never"] as const, { description: "When this task's runs produce notifications; overrides the project default." }),
+          Type.Literal("", { description: "In update: clear the notify override." }),
+        ]),
       ),
       notifyTo: Type.Optional(
         Type.Array(Type.String(), {
-          description: "Channel ids from .agents/cron/config.json to route this task's notifications to; omit to notify every configured channel.",
+          description:
+            "Channel ids from .agents/cron/config.json to route this task's notifications to; omit to notify every configured channel. In update, an empty array clears the routing.",
         }),
       ),
       schedule: Type.Optional(scheduleSchema),
@@ -94,11 +118,39 @@ export function registerTools(pi: ExtensionAPI): void {
         return result(tasks.length ? tasks.map(formatTask).join("\n") : "No scheduled tasks.", { tasks });
       }
 
+      if (params.action === "update") {
+        if (!params.id) throw new Error("update requires id");
+        const patch: TaskPatch = {};
+        if (params.name !== undefined) patch.name = params.name;
+        if (params.agent !== undefined) patch.agent = params.agent;
+        if (params.model !== undefined) patch.model = params.model;
+        if (params.thinking !== undefined) patch.thinking = params.thinking;
+        if (params.cwd !== undefined) patch.cwd = params.cwd;
+        if (params.tools !== undefined) patch.tools = params.tools;
+        if (params.notify !== undefined) patch.notify = params.notify;
+        if (params.notifyTo !== undefined) patch.notifyTo = params.notifyTo;
+        const task = await updateTask(ctx.cwd, params.id, patch);
+        const overrides = describeOverrides(task);
+        return result(
+          `Updated ${task.id}${overrides.length ? ` — ${overrides.join("; ")}` : " — no overrides; runs use the project and user defaults"}`,
+          task,
+        );
+      }
+
       if (!params.id && params.action !== "clear") throw new Error(`${params.action} requires id`);
 
       if (params.action === "show") {
         const task = requireTask(await listTasks(ctx.cwd), params.id!);
-        return result(`${formatTask(task)}\nprompt:\n${task.prompt}`, task);
+        const meta = [
+          task.agent ? `agent: ${task.agent}` : undefined,
+          task.model ? `model: ${task.model}` : undefined,
+          task.thinking ? `thinking: ${task.thinking}` : undefined,
+          task.cwd ? `cwd: ${task.cwd}` : undefined,
+          task.tools?.length ? `tools: ${task.tools.join(", ")}` : undefined,
+          task.notify ? `notify: ${task.notify}` : undefined,
+          task.notifyTo?.length ? `notify to: ${task.notifyTo.join(", ")}` : undefined,
+        ].filter(Boolean);
+        return result([formatTask(task), ...meta, `prompt:\n${task.prompt}`].join("\n"), task);
       }
 
       if (params.action === "runs") {
