@@ -16,7 +16,7 @@ import { loadRegistry } from "./registry.ts";
 import { listRuns, pruneRuns } from "./runs.ts";
 import { runDue, runTask, TaskNotFoundError, DEFAULT_KEEP_RUNS } from "./runner.ts";
 import type { ScheduleInput } from "./scheduling.ts";
-import { addTask, clearTasks, exportTasks, importTasks, listTasks, removeTask, requireTask, setTaskEnabled } from "./task-service.ts";
+import { addTask, clearTasks, describeOverrides, exportTasks, importTasks, listTasks, removeTask, requireTask, setTaskEnabled, updateTask, type TaskPatch } from "./task-service.ts";
 import { parseExportFile } from "./task-export.ts";
 import type { RunRecord, ScheduleTask } from "./types.ts";
 
@@ -29,6 +29,7 @@ const USAGE = [
   "  show <taskId> [--json]                  Show one task: scheduling facts and its prompt",
   "  add --prompt <text> (--at <iso>|--every <duration>|--cron <expr>) [options]",
   "  enable <taskId> | disable <taskId> | remove <taskId>",
+  "  set <taskId> [options]            Reconfigure a task: model, thinking, agent, cwd, tools, name, notify",
   "  clear                                Remove every task bound to the current project",
   "  export [--out <file>] [--all] [taskId...]  Write task definitions as JSON (stdout, or --out)",
   "  import <file> [--dry-run]                    Import definitions here; new tasks start disabled",
@@ -40,6 +41,8 @@ const USAGE = [
   "",
   "Agents: --agent <id> selects the agent adapter — built in: pi, claude, codex (default: pi).",
   "add options: --name --agent --model --thinking --cwd --tools a,b --notify always|error|never --notify-to a,b",
+  "set options: the same flags as add; an empty value clears the override — e.g. --model= --thinking= --tools=",
+  "             thinking levels: off, minimal, low, medium, high, xhigh, max",
 ].join("\n");
 
 export type CliDeps = {
@@ -92,6 +95,10 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
         const task = await setTaskEnabled(project, id, command === "enable");
         out(`${task.enabled ? "Enabled" : "Disabled"} ${task.id}`);
         return 0;
+      }
+      case "set": {
+        const id = requireArgument(positional[0], "set requires a task id");
+        return await commandSet(project, flags, id, out);
       }
       case "remove": {
         const id = requireArgument(positional[0], "remove requires a task id");
@@ -232,6 +239,46 @@ async function commandAdd(
     ...(notifyTo ? { notifyTo } : {}),
   });
   out(`Created ${task.id}; next run ${task.nextRunAt ?? "never"}`);
+  return 0;
+}
+
+/** One line per flag value, comma-separated and blanks dropped. */
+function commaList(value: string | undefined): string[] {
+  return (value ?? "").split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+/**
+ * Reads a TaskPatch out of parsed flags. Present flag means apply; an empty
+ * value (`--model=`, `--tools=`, `--notify=`) means clear the override back
+ * to the project and user defaults.
+ */
+function patchFromFlags(flags: Map<string, string | boolean>): TaskPatch {
+  const patch: TaskPatch = {};
+  for (const field of ["name", "agent", "model", "thinking", "cwd"] as const) {
+    if (flags.has(field)) patch[field] = stringFlag(flags, field) ?? "";
+  }
+  if (flags.has("tools")) patch.tools = commaList(stringFlag(flags, "tools"));
+  if (flags.has("notify-to")) patch.notifyTo = commaList(stringFlag(flags, "notify-to"));
+  if (flags.has("notify")) {
+    const value = stringFlag(flags, "notify") ?? "";
+    if (value && value !== "always" && value !== "error" && value !== "never") {
+      throw new Error("--notify must be one of: always, error, never");
+    }
+    patch.notify = value as TaskPatch["notify"];
+  }
+  return patch;
+}
+
+/** Reconfigures one task and reports what it now pins. */
+async function commandSet(
+  project: string,
+  flags: Map<string, string | boolean>,
+  id: string,
+  out: (line: string) => void,
+): Promise<number> {
+  const task = await updateTask(project, id, patchFromFlags(flags));
+  const overrides = describeOverrides(task);
+  out(`Updated ${task.id}${overrides.length ? ` — ${overrides.join("; ")}` : " — no overrides; runs use the project and user defaults"}`);
   return 0;
 }
 

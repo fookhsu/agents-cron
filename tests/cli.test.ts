@@ -160,6 +160,66 @@ test("add --agent records the agent on the task", async () => {
   assert.equal(task.agent, "codex");
 });
 
+test("set reconfigures a task's model and thinking after creation", async () => {
+  const dir = await project();
+  const { deps, stdout } = capture(dir, new FakeAgent());
+  await main(["add", "--prompt", "Check CI", "--every", "30m"], deps);
+  const id = /Created (task_[^\s;]+)/.exec(stdout.join("\n"))![1];
+
+  stdout.length = 0;
+  assert.equal(await main(["set", id, "--model", "anthropic/claude-opus-4-5", "--thinking", "high"], deps), 0);
+  assert.match(stdout.join("\n"), new RegExp(`Updated ${id}`));
+  assert.match(stdout.join("\n"), /model: anthropic\/claude-opus-4-5/);
+  assert.match(stdout.join("\n"), /thinking: high/);
+
+  stdout.length = 0;
+  await main(["show", id], deps);
+  const text = stdout.join("\n");
+  assert.match(text, /model: anthropic\/claude-opus-4-5/);
+  assert.match(text, /thinking: high/);
+});
+
+test("set with empty flag values clears overrides back to the defaults", async () => {
+  const dir = await project();
+  const { deps, stdout } = capture(dir, new FakeAgent());
+  await main(["add", "--prompt", "Check CI", "--every", "30m", "--model", "haiku", "--thinking", "low", "--tools", "read"], deps);
+  const id = /Created (task_[^\s;]+)/.exec(stdout.join("\n"))![1];
+
+  stdout.length = 0;
+  assert.equal(await main(["set", id, "--model=", "--thinking=", "--tools="], deps), 0);
+  assert.match(stdout.join("\n"), /no overrides/);
+
+  stdout.length = 0;
+  await main(["show", id, "--json"], deps);
+  const task = JSON.parse(stdout.join("\n"));
+  assert.equal("model" in task, false);
+  assert.equal("thinking" in task, false);
+  assert.equal("tools" in task, false);
+});
+
+test("set validates its input: bad thinking, no flags, unknown id", async () => {
+  const dir = await project();
+  const { deps, stdout, stderr } = capture(dir, new FakeAgent());
+  await main(["add", "--prompt", "Check CI", "--every", "30m"], deps);
+  const id = /Created (task_[^\s;]+)/.exec(stdout.join("\n"))![1];
+
+  assert.equal(await main(["set", id, "--thinking", "sideways"], deps), 2);
+  assert.match(stderr.join("\n"), /--thinking must be one of: off, minimal, low, medium, high, xhigh, max/);
+
+  assert.equal(await main(["set", id], deps), 2);
+  assert.match(stderr.join("\n"), /set requires at least one of/);
+
+  assert.equal(await main(["set", "task_nope", "--model", "haiku"], deps), 2);
+  assert.match(stderr.join("\n"), /Task not found/);
+});
+
+test("add rejects an invalid --thinking level up front", async () => {
+  const dir = await project();
+  const { deps, stderr } = capture(dir, new FakeAgent());
+  assert.equal(await main(["add", "--prompt", "x", "--every", "30m", "--thinking", "deep"], deps), 2);
+  assert.match(stderr.join("\n"), /--thinking must be one of/);
+});
+
 test("run-due executes a due task and records a run", async () => {
   const dir = await project();
   const agent = new FakeAgent();
