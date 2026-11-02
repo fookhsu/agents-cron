@@ -24,6 +24,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
   flags, and `--thinking <level>` completes everywhere it is accepted.
   `/schedule show` and `schedule_task show` now list agent, model, thinking,
   cwd, and tools alongside the notify routing.
+- Detached dashboard lifecycle: `agents-cron dashboard start|stop|status` and
+  `/schedule dashboard [start|stop|status]` run the read-only dashboard as a
+  child that outlives the shell and the Pi session, registered per project in
+  `.agents/cron/dashboard.json` (logs in `.agents/cron/dashboard.log`). Stop
+  verifies the port still answers like this dashboard before signaling, so a
+  recycled PID is left alone; a registration whose process died is cleaned up
+  on the next status read.
 
 ## [0.15.0] - 2026-10-30
 

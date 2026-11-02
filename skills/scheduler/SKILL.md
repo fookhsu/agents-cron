@@ -43,6 +43,7 @@ agents-cron import <file> [--dry-run]
 agents-cron prune [--keep <n>]       # all projects unless --project; default keep 20
 agents-cron run <taskId>
 agents-cron dashboard [--port <n>]
+agents-cron dashboard start|stop|status   # detached: survives Pi, stop reclaims it
 agents-cron test-notify [--channel <id>]
 ```
 

@@ -177,7 +177,8 @@ agents-cron clear                                      # remove every task bound
 agents-cron export [--out <file>] [--all] [taskId...]  # task definitions as JSON
 agents-cron import <file> [--dry-run]                  # new tasks bind here, start disabled
 agents-cron prune [--keep <n>]                         # all projects unless --project; default keep 20
-agents-cron dashboard [--port <n>]                     # global, grouped by project
+agents-cron dashboard [--port <n>]                     # foreground, global view grouped by project
+agents-cron dashboard start|stop|status [--port <n>]   # detached lifecycle
 agents-cron migrate-sessions [--dry-run] [--project <path>]   # legacy transcripts into Pi's store
 agents-cron test-notify [--channel <id>]
 ```
@@ -248,6 +249,14 @@ run lock and never interferes with cron's `run-due` — leave it open in a tab
 all day if you like.
 
 ![agents-cron dashboard showing four tasks across the pi, claude, and codex adapters, with a run history including one error and one in-flight run](assets/dashboard.png)
+
+**Dashboard lifecycle.** `agents-cron dashboard start` (or `/schedule dashboard`)
+runs the server as a detached child owned by the project's registration file,
+`.agents/cron/dashboard.json`. It outlives the shell and the Pi session, so
+you can leave it watching cron runs with Pi closed; `dashboard stop` reclaims
+it after checking the port still answers like this dashboard, so a recycled
+PID is never killed. A registration whose process is gone self-heals the next
+time anything asks for status. Its output goes to `.agents/cron/dashboard.log`.
 
 ## Notifications
 
@@ -328,6 +337,8 @@ file permissions), and by default only **failed** runs notify:
 /schedule remove <id>
 /schedule runs <id>
 /schedule open <runId>
+/schedule dashboard                    # start the detached dashboard
+/schedule dashboard stop|status        # reclaim it, or see where it runs
 /schedule export [file]              # definitions to agents-cron.tasks.json
 /schedule export --all               # every project's definitions
 /schedule import <file>              # new tasks here, disabled until enabled
