@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { addTask, exportTasks, importTasks, listTasks, removeTask, setTaskEnabled } from "../src/task-service.ts";
+import { addTask, exportTasks, importTasks, listTasks, removeTask, setTaskEnabled, updateTask } from "../src/task-service.ts";
 import { loadRegistry } from "../src/registry.ts";
 import { importLegacyStore } from "../src/migration.ts";
 import { saveTasks } from "../src/storage.ts";
@@ -312,6 +312,109 @@ test("importTasks dry-run previews without writing the registry", async () => {
 
     assert.equal(report.created.length, 1);
     assert.deepEqual(await loadRegistry(), []);
+  } finally {
+    restore();
+  }
+});
+
+// --- Task reconfiguration: model, thinking, and the other definition fields ---
+
+test("addTask rejects a thinking level the Pi agent would refuse", async () => {
+  const restore = await withRegistryHome();
+  try {
+    const owner = await project();
+    await assert.rejects(
+      addTask(owner, { prompt: "p", schedule: { kind: "interval", every: "5m" }, thinking: "ultra" }, NOW),
+      /--thinking must be one of: off, minimal, low, medium, high, xhigh, max/,
+    );
+    assert.deepEqual(await loadRegistry(), []); // nothing was created
+  } finally {
+    restore();
+  }
+});
+
+test("updateTask reconfigures model and thinking on an existing task", async () => {
+  const restore = await withRegistryHome();
+  try {
+    const owner = await project();
+    const created = await addTask(owner, { prompt: "p", schedule: { kind: "interval", every: "5m" } }, NOW);
+
+    const later = new Date("2026-10-22T12:00:00.000Z");
+    const updated = await updateTask(
+      owner,
+      created.id,
+      { model: "anthropic/claude-opus-4-5", thinking: "high", agent: "pi", name: "audit", cwd: "packages/api", tools: ["read", "bash"] },
+      later,
+    );
+
+    assert.equal(updated.model, "anthropic/claude-opus-4-5");
+    assert.equal(updated.thinking, "high");
+    assert.equal(updated.agent, "pi");
+    assert.equal(updated.name, "audit");
+    assert.equal(updated.cwd, "packages/api");
+    assert.deepEqual(updated.tools, ["read", "bash"]);
+    assert.equal(updated.updatedAt, later.toISOString());
+    // Scheduling state is untouched: the next run and enabled flag stay.
+    assert.equal(updated.nextRunAt, created.nextRunAt);
+    assert.equal(updated.enabled, true);
+  } finally {
+    restore();
+  }
+});
+
+test("updateTask clears overrides with empty values, falling back to project and user settings", async () => {
+  const restore = await withRegistryHome();
+  try {
+    const owner = await project();
+    const task = await addTask(
+      owner,
+      { prompt: "p", schedule: { kind: "interval", every: "5m" }, model: "haiku", thinking: "low", tools: ["read"], notify: "always", notifyTo: ["feishu"] },
+      NOW,
+    );
+
+    const updated = await updateTask(owner, task.id, { model: "", thinking: "", tools: [], notify: "", notifyTo: [] });
+
+    assert.equal("model" in updated, false);
+    assert.equal("thinking" in updated, false);
+    assert.equal("tools" in updated, false);
+    assert.equal("notify" in updated, false);
+    assert.equal("notifyTo" in updated, false);
+  } finally {
+    restore();
+  }
+});
+
+test("updateTask validates before mutating: bad thinking, empty patch, unknown id", async () => {
+  const restore = await withRegistryHome();
+  try {
+    const owner = await project();
+    const task = await addTask(owner, { prompt: "p", schedule: { kind: "interval", every: "5m" } }, NOW);
+
+    await assert.rejects(updateTask(owner, task.id, { thinking: "turbo" }), /--thinking must be one of/);
+    await assert.rejects(updateTask(owner, task.id, {}), /set requires at least one of/);
+    await assert.rejects(updateTask(owner, "task_missing", { model: "haiku" }), /Task not found/);
+    // The rejected updates changed nothing.
+    const stored = (await loadRegistry())[0];
+    assert.equal(stored.thinking, undefined);
+    assert.equal(stored.model, undefined);
+  } finally {
+    restore();
+  }
+});
+
+test("importTasks warns about an unknown thinking level instead of rejecting", async () => {
+  const restore = await withRegistryHome();
+  try {
+    const owner = await project();
+    const report = await importTasks(
+      owner,
+      [{ prompt: "p", schedule: { kind: "interval", everyMs: 300_000 }, thinking: "megalomaniac" }],
+      { now: NOW },
+    );
+
+    assert.equal(report.created.length, 1); // definitions travel; the level is reviewable
+    assert.equal(report.created[0].thinking, "megalomaniac");
+    assert.match(report.warnings.join("\n"), /unknown thinking level "megalomaniac"/);
   } finally {
     restore();
   }

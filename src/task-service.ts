@@ -32,6 +32,68 @@ export type NewTaskInput = {
   notifyTo?: string[];
 };
 
+/**
+ * The thinking levels Pi accepts for `--thinking`. A task's level is
+ * validated at write time so a typo fails the `set`/`add` — not every
+ * 3 a.m. run. Claude Code and Codex ignore the field; the set still pins
+ * what the default agent understands. Keep in sync with Pi's CLI.
+ */
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+export function isThinkingLevel(value: string): boolean {
+  return (THINKING_LEVELS as readonly string[]).includes(value);
+}
+
+export function assertThinkingLevel(value: string): void {
+  if (!isThinkingLevel(value)) {
+    throw new Error(`--thinking must be one of: ${THINKING_LEVELS.join(", ")}`);
+  }
+}
+
+/**
+ * The definition fields `set` may reconfigure on an existing task. Every
+ * field is optional: present means apply, absent means leave unchanged, and
+ * an empty value (`""` / `[]`) clears the override so runs fall back to the
+ * project and user settings. Prompt and schedule are the task's identity —
+ * recreate the task to change those.
+ */
+export type TaskPatch = {
+  name?: string;
+  agent?: string;
+  model?: string;
+  thinking?: string;
+  cwd?: string;
+  tools?: string[];
+  notify?: "always" | "error" | "never" | "";
+  notifyTo?: string[];
+};
+
+const PATCH_FIELDS = ["name", "agent", "model", "thinking", "cwd", "tools", "notify", "notifyTo"] as const;
+
+/** The flag spellings of PATCH_FIELDS, for error and usage messages. */
+const PATCH_FLAG_NAMES = ["--name", "--agent", "--model", "--thinking", "--cwd", "--tools", "--notify", "--notify-to"] as const;
+
+export function hasPatchField(patch: TaskPatch): boolean {
+  return PATCH_FIELDS.some((field) => patch[field] !== undefined);
+}
+
+/**
+ * The shared one-line summary of a task's current overrides, in PATCH_FIELDS
+ * order — what every mutation surface reports after a `set`.
+ */
+export function describeOverrides(task: ScheduleTask): string[] {
+  const parts: string[] = [];
+  if (task.name) parts.push(`name: ${task.name}`);
+  if (task.agent) parts.push(`agent: ${task.agent}`);
+  if (task.model) parts.push(`model: ${task.model}`);
+  if (task.thinking) parts.push(`thinking: ${task.thinking}`);
+  if (task.cwd) parts.push(`cwd: ${task.cwd}`);
+  if (task.tools?.length) parts.push(`tools: ${task.tools.join(",")}`);
+  if (task.notify) parts.push(`notify: ${task.notify}`);
+  if (task.notifyTo?.length) parts.push(`notify to: ${task.notifyTo.join(",")}`);
+  return parts;
+}
+
 /** The Project View: the current project's tasks first, then every other project grouped by path. */
 export async function listTasks(projectDir: string): Promise<ScheduleTask[]> {
   await importLegacyStore(projectDir);
@@ -56,6 +118,7 @@ export async function addTask(
   if (!prompt) throw new Error("Task prompt must not be empty");
 
   const schedule = parseScheduleInput(input.schedule);
+  if (input.thinking) assertThinkingLevel(input.thinking);
   const notifyTo = normalizeChannelIds(input.notifyTo);
   if (notifyTo) await warnUnknownChannels(projectDir, notifyTo);
   const task: ScheduleTask = {
@@ -78,6 +141,51 @@ export async function addTask(
   };
   await updateRegistry((tasks) => [...tasks, task]);
   return task;
+}
+
+/** Reconfigures an existing task's definition fields; returns the updated task. */
+export async function updateTask(
+  projectDir: string,
+  id: string,
+  patch: TaskPatch,
+  now = new Date(),
+): Promise<ScheduleTask> {
+  await importLegacyStore(projectDir);
+  if (!hasPatchField(patch)) {
+    throw new Error(`set requires at least one of: ${PATCH_FLAG_NAMES.join(", ")}`);
+  }
+  if (patch.thinking) assertThinkingLevel(patch.thinking);
+  const notifyTo = patch.notifyTo !== undefined ? normalizeChannelIds(patch.notifyTo) : undefined;
+  if (notifyTo?.length) await warnUnknownChannels(projectDir, notifyTo);
+
+  let updated: ScheduleTask | undefined;
+  await updateRegistry((tasks) => {
+    const task = requireTask(tasks, id);
+    for (const field of ["name", "agent", "model", "thinking", "cwd"] as const) {
+      const value = patch[field];
+      if (value === undefined) continue;
+      const trimmed = value.trim();
+      if (trimmed) task[field] = trimmed;
+      else delete task[field];
+    }
+    if (patch.tools !== undefined) {
+      const tools = patch.tools.map((tool) => tool.trim()).filter(Boolean);
+      if (tools.length) task.tools = tools;
+      else delete task.tools;
+    }
+    if (patch.notify !== undefined) {
+      if (patch.notify) task.notify = patch.notify;
+      else delete task.notify;
+    }
+    if (patch.notifyTo !== undefined) {
+      if (notifyTo?.length) task.notifyTo = notifyTo;
+      else delete task.notifyTo;
+    }
+    task.updatedAt = now.toISOString();
+    updated = task;
+    return tasks;
+  });
+  return updated!;
 }
 
 export async function setTaskEnabled(
@@ -189,6 +297,11 @@ export async function importTasks(
   const channelIds = [...new Set(entries.flatMap((entry) => entry.notifyTo ?? []))];
   warnings.push(...(await unknownChannelWarnings(projectDir, channelIds)));
   for (const entry of entries) {
+    // Definitions travel between machines, so a foreign thinking level is a
+    // warning, not a rejection: the import still lands disabled for review.
+    if (entry.thinking && !isThinkingLevel(entry.thinking)) {
+      warnings.push(`${importLabel(entry)}: unknown thinking level "${entry.thinking}" — runs on the Pi agent would fail until fixed`);
+    }
     if (entry.schedule.kind === "once" && new Date(entry.schedule.runAt).getTime() <= now.getTime()) {
       warnings.push(
         `${importLabel(entry)}: runAt is in the past — once enabled, the run will be recorded as missed`,
