@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -159,16 +159,17 @@ export async function startDetachedDashboard(
 /**
  * Stops the registered dashboard after checking it is really ours: a live
  * pid whose port does not answer like the dashboard is probably PID reuse,
- * and killing an unverified process is never worth it.
+ * and killing an unverified process is never worth it. A refusal names what
+ * the pid currently runs, so the user can judge it themselves.
  */
 export async function stopDashboard(
   projectDir: string,
-): Promise<{ outcome: "stopped" | "stale" | "not-running" | "refused"; state?: DashboardState }> {
+): Promise<{ outcome: "stopped" | "stale" | "not-running" | "refused"; state?: DashboardState; process?: string }> {
   const status = await dashboardStatus(projectDir);
   if (!status.running) return { outcome: status.stale ? "stale" : "not-running" };
 
   const { state } = status;
-  if (!status.healthy) return { outcome: "refused", state };
+  if (!status.healthy) return { outcome: "refused", state, process: await processName(state.pid) };
 
   kill(state.pid, "SIGTERM");
   if (!(await waitForExit(state.pid, TERM_GRACE_MS))) {
@@ -189,6 +190,33 @@ async function tailLog(path: string): Promise<string> {
   } catch {
     return "no output";
   }
+}
+
+/** The shared refusal line: why stop will not signal, and what the pid is now. */
+export function refusalMessage(state: DashboardState, process?: string): string {
+  const identity = process ? `; pid ${state.pid} runs: ${process}` : "";
+  return `Refusing to stop pid ${state.pid}: port ${state.port} does not answer like this dashboard${identity} — kill it manually if you are sure`;
+}
+
+/**
+ * What the OS says the pid currently runs (ps, trimmed to one line), or
+ * undefined when it cannot be learned — a refusal still reads fine without.
+ */
+export function processName(pid: number): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    execFile("ps", ["-p", String(pid), "-o", "command="], { timeout: 2_000 }, (error, stdout) => {
+      if (error) {
+        resolve(undefined);
+        return;
+      }
+      const command = stdout.trim().replace(/\s+/g, " ");
+      if (!command) {
+        resolve(undefined);
+        return;
+      }
+      resolve(command.length > 120 ? `${command.slice(0, 120)}…` : command);
+    });
+  });
 }
 
 /** An append fd for the log, or "ignore" when the store is not writable. */

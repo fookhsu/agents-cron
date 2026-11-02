@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { dashboardStatus, startDetachedDashboard, stopDashboard } from "../../dashboard/lifecycle.ts";
+import { dashboardStatus, refusalMessage, startDetachedDashboard, stopDashboard } from "../../dashboard/lifecycle.ts";
 import { readRun, listRunsForTask } from "../../runs.ts";
 import { runTask } from "../../runner.ts";
 import { normalizeChannelIds } from "../../notify/config.ts";
@@ -385,10 +385,7 @@ async function dashboardAction(ctx: CommandContext, sub: string | undefined): Pr
   if (action === "stop") {
     const result = await stopDashboard(ctx.cwd);
     if (result.outcome === "refused" && result.state) {
-      ctx.ui.notify(
-        `Refusing to stop pid ${result.state.pid}: port ${result.state.port} does not answer like this dashboard — kill it manually if you are sure`,
-        "error",
-      );
+      ctx.ui.notify(refusalMessage(result.state, result.process), "error");
       return;
     }
     ctx.ui.notify(

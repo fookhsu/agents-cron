@@ -12,6 +12,7 @@ import {
   logFile,
   probeDashboard,
   readDashboardState,
+  refusalMessage,
   startDetachedDashboard,
   stopDashboard,
   writeDashboardState,
@@ -108,6 +109,14 @@ test("stop refuses an alive pid whose port does not answer like the dashboard", 
     const result = await stopDashboard(dir);
     assert.equal(result.outcome, "refused");
     assert.deepEqual(result.state, registered);
+    // The refusal names what the pid currently runs, so the user can judge:
+    // here that is this very test runner (ps exists on macOS and Linux).
+    if (process.platform !== "win32") {
+      assert.equal(typeof result.process, "string");
+      assert.match(result.process!, /node/);
+    }
+    assert.match(refusalMessage(registered, result.process), /Refusing to stop pid/);
+    assert.match(refusalMessage(registered, result.process), /does not answer like this dashboard/);
     // The process is ours and still alive — a refusal must never signal it.
     assert.equal(isPidAlive(process.pid), true);
     assert.equal(existsSync(dashboardStateFile(dir)), true);
@@ -115,6 +124,18 @@ test("stop refuses an alive pid whose port does not answer like the dashboard", 
     await new Promise<void>((resolve) => fake.server.close(() => resolve()));
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("refusalMessage reads fine with and without the process identity", () => {
+  const registered = state({ pid: 4242, port: 7383 });
+  assert.equal(
+    refusalMessage(registered),
+    "Refusing to stop pid 4242: port 7383 does not answer like this dashboard — kill it manually if you are sure",
+  );
+  assert.match(
+    refusalMessage(registered, "/Applications/SomeApp.app/Contents/MacOS/SomeApp"),
+    /pid 4242 runs: \/Applications\/SomeApp\.app.*kill it manually/,
+  );
 });
 
 test("start registers a detached dashboard that answers, and stop reclaims it", async () => {

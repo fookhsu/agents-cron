@@ -543,6 +543,7 @@ async function commandDashboard(
   const {
     dashboardStatus,
     logFile,
+    refusalMessage,
     removeDashboardState,
     startDetachedDashboard,
     stopDashboard,
@@ -559,9 +560,7 @@ async function commandDashboard(
   if (subcommand === "stop") {
     const result = await stopDashboard(project);
     if (result.outcome === "refused" && result.state) {
-      err(
-        `Refusing to stop pid ${result.state.pid}: port ${result.state.port} does not answer like this dashboard — kill it manually if you are sure`,
-      );
+      err(refusalMessage(result.state, result.process));
       return 1;
     }
     out(

@@ -29,8 +29,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   child that outlives the shell and the Pi session, registered per project in
   `.agents/cron/dashboard.json` (logs in `.agents/cron/dashboard.log`). Stop
   verifies the port still answers like this dashboard before signaling, so a
-  recycled PID is left alone; a registration whose process died is cleaned up
-  on the next status read.
+  recycled PID is left alone — the refusal names what that pid currently
+  runs, so the user can judge it themselves; a registration whose process
+  died is cleaned up on the next status read.
 
 ## [0.15.0] - 2026-10-30
 

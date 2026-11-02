@@ -255,8 +255,10 @@ runs the server as a detached child owned by the project's registration file,
 `.agents/cron/dashboard.json`. It outlives the shell and the Pi session, so
 you can leave it watching cron runs with Pi closed; `dashboard stop` reclaims
 it after checking the port still answers like this dashboard, so a recycled
-PID is never killed. A registration whose process is gone self-heals the next
-time anything asks for status. Its output goes to `.agents/cron/dashboard.log`.
+PID is never killed — the refusal names what that pid currently runs, so you
+can judge whether it really is a reused PID. A registration whose process is
+gone self-heals the next time anything asks for status. Its output goes to
+`.agents/cron/dashboard.log`.
 
 ## Notifications
 
