@@ -1,7 +1,7 @@
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -9,6 +9,7 @@ import {
   dashboardStateFile,
   dashboardStatus,
   isPidAlive,
+  logFile,
   probeDashboard,
   readDashboardState,
   startDetachedDashboard,
@@ -134,6 +135,28 @@ test("start registers a detached dashboard that answers, and stop reclaims it", 
     assert.equal(existsSync(dashboardStateFile(dir)), false);
   } finally {
     if (pid !== undefined && isPidAlive(pid)) process.kill(pid, "SIGKILL");
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("start on an occupied port fails fast, with the child's own error in the message", async () => {
+  const dir = await project();
+  const squatter = await impostor();
+  try {
+    await assert.rejects(
+      startDetachedDashboard(dir, squatter.port),
+      (error: Error) => {
+        // Fails on the child's exit, not after the 10s report timeout — and
+        // the message carries the log tail, so EADDRINUSE explains itself.
+        assert.match(error.message, /exited before serving/);
+        assert.match(error.message, /EADDRINUSE/);
+        return true;
+      },
+    );
+    assert.equal(existsSync(dashboardStateFile(dir)), false);
+    assert.match(await readFile(logFile(dir), "utf8"), /EADDRINUSE/);
+  } finally {
+    await new Promise<void>((resolve) => squatter.server.close(() => resolve()));
     await rm(dir, { recursive: true, force: true });
   }
 });

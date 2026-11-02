@@ -136,10 +136,18 @@ export async function startDetachedDashboard(
 
   if (child.pid === undefined) throw new Error("dashboard did not start");
 
+  // An early exit usually means the port was taken (EADDRINUSE) — fail fast
+  // with the log's tail instead of burning the whole report timeout.
+  let exited = false;
+  child.once("exit", () => {
+    exited = true;
+  });
+
   const deadline = Date.now() + STATE_REPORT_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const state = await readDashboardState(projectDir);
     if (state?.pid === child.pid) return { state };
+    if (exited) throw new Error(`dashboard exited before serving — ${await tailLog(log)}`);
     await sleep(STATE_POLL_MS);
   }
 
@@ -171,6 +179,16 @@ export async function stopDashboard(
   // fresh dashboard may have re-registered in the window since.
   await removeDashboardState(projectDir, state.pid);
   return { outcome: "stopped", state };
+}
+
+/** The last lines a dead child left in the log, so failures explain themselves. */
+async function tailLog(path: string): Promise<string> {
+  try {
+    const tail = (await readFile(path, "utf8")).trimEnd().slice(-400);
+    return tail || "no output";
+  } catch {
+    return "no output";
+  }
 }
 
 /** An append fd for the log, or "ignore" when the store is not writable. */
