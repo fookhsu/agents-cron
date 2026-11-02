@@ -6,7 +6,7 @@ import { runTask } from "../../runner.ts";
 import { normalizeChannelIds } from "../../notify/config.ts";
 import { schedulerPaths } from "../../paths.ts";
 import { parseDuration, parseScheduleSpec } from "../../scheduling.ts";
-import { addTask, clearTasks, exportTasks, importTasks, listTasks, removeTask, requireTask, setTaskEnabled } from "../../task-service.ts";
+import { addTask, assertThinkingLevel, clearTasks, describeOverrides, exportTasks, importTasks, listTasks, removeTask, requireTask, setTaskEnabled, updateTask, type TaskPatch } from "../../task-service.ts";
 import { parseExportFile } from "../../task-export.ts";
 import { confirmMutation } from "./confirm.ts";
 import {
@@ -49,6 +49,9 @@ export function registerCommands(pi: ExtensionAPI): void {
           schedule: { kind: "once", runAt: parsed.runAt },
           ...(flags.notify ? { notify: flags.notify } : {}),
           ...(flags.to ? { notifyTo: flags.to } : {}),
+          ...(flags.agent ? { agent: flags.agent } : {}),
+          ...(flags.model ? { model: flags.model } : {}),
+          ...(flags.thinking ? { thinking: flags.thinking } : {}),
         });
         ctx.ui.notify(`Created ${task.id}; scheduled for ${formatDate(task.nextRunAt)}`, "info");
       });
@@ -83,10 +86,26 @@ export function registerCommands(pi: ExtensionAPI): void {
           ctx.ui.notify(runs.length ? runs.map(formatRun).join("\n") : `No runs for ${id}.`, "info");
           return;
         }
+        if (action === "set") {
+          const id = requireId(tokens[1], "set");
+          const patch = parseSetSpec(args.replace(/^\s*set\s+\S+\s*/, ""));
+          const task = await updateTask(ctx.cwd, id, patch);
+          const overrides = describeOverrides(task);
+          ctx.ui.notify(
+            `Updated ${task.id}${overrides.length ? ` — ${overrides.join("; ")}` : " — no overrides; runs use the project and user defaults"}`,
+            "info",
+          );
+          return;
+        }
         if (action === "show") {
           const id = requireId(tokens[1], "show");
           const task = requireTask(await listTasks(ctx.cwd), id);
           const meta = [
+            task.agent ? `agent: ${task.agent}` : undefined,
+            task.model ? `model: ${task.model}` : undefined,
+            task.thinking ? `thinking: ${task.thinking}` : undefined,
+            task.cwd ? `cwd: ${task.cwd}` : undefined,
+            task.tools?.length ? `tools: ${task.tools.join(", ")}` : undefined,
             task.notify ? `notify: ${task.notify}` : undefined,
             task.notifyTo?.length ? `notify to: ${task.notifyTo.join(", ")}` : undefined,
           ].filter(Boolean);
@@ -172,7 +191,30 @@ type CommandContext = Parameters<Parameters<ExtensionAPI["registerCommand"]>[1][
 
 type NotifyLevel = "always" | "error" | "never";
 
-type TrailingFlags = { to?: string[]; notify?: NotifyLevel; rest: string };
+type TrailingFlags = {
+  to?: string[];
+  notify?: NotifyLevel;
+  agent?: string;
+  model?: string;
+  thinking?: string;
+  rest: string;
+};
+
+/** How /schedule set spells its flags, mapped to TaskPatch keys. */
+const SET_FLAG_TO_FIELD: Record<string, "name" | "agent" | "model" | "thinking" | "cwd" | "tools" | "notify" | "notifyTo"> = {
+  "--name": "name",
+  "--agent": "agent",
+  "--model": "model",
+  "--thinking": "thinking",
+  "--cwd": "cwd",
+  "--tools": "tools",
+  "--notify": "notify",
+  "--notify-to": "notifyTo",
+  "--to": "notifyTo",
+};
+
+const SET_USAGE =
+  "Usage: /schedule set <id> --model <id> --thinking <level> --agent <id> --name <text> --cwd <path> --tools a,b --notify <level> --to <ids> — a value of - clears a field";
 
 /**
  * The one creation path behind /loop and /schedule add: spec first, prompt
@@ -192,35 +234,108 @@ async function addFromSpec(ctx: CommandContext, command: string, args: string): 
     schedule: parseScheduleSpec(match[1]),
     ...(flags.notify ? { notify: flags.notify } : {}),
     ...(flags.to ? { notifyTo: flags.to } : {}),
+    ...(flags.agent ? { agent: flags.agent } : {}),
+    ...(flags.model ? { model: flags.model } : {}),
+    ...(flags.thinking ? { thinking: flags.thinking } : {}),
   });
   ctx.ui.notify(`Created ${task.id}; next run ${formatDate(task.nextRunAt)}`, "info");
 }
 
 /**
- * Strips trailing `--to <id,id>` and `--notify <level>` flags off a command's
- * args, in any order, so the prompt never has to carry them. Only trailing
- * flags are recognized — a `--to` mid-prompt stays part of the prompt.
+ * Parses the flag list /schedule set accepts: `--flag value` pairs after the
+ * task id. `-` clears a field (drops the override); list flags take a
+ * comma-separated value; a value may be quoted once for --name.
+ */
+export function parseSetSpec(rest: string): TaskPatch {
+  const patch: TaskPatch = {};
+  const tokens = rest.trim().split(/\s+/).filter(Boolean);
+  for (let index = 0; index < tokens.length; ) {
+    const flag = tokens[index];
+    const field = SET_FLAG_TO_FIELD[flag];
+    if (!field) throw new Error(`Unexpected "${flag}". ${SET_USAGE}`);
+    let value = tokens[index + 1];
+    if (value === undefined || value.startsWith("--")) throw new Error(`${flag} requires a value. ${SET_USAGE}`);
+    index += 2;
+    // A quoted value may span tokens: --name "night audit".
+    if (value.startsWith('"') && !value.endsWith('"')) {
+      const end = tokens.findIndex((token, i) => i >= index && token.endsWith('"'));
+      if (end === -1) throw new Error(`${flag} is missing its closing quote. ${SET_USAGE}`);
+      value = [value, ...tokens.slice(index, end + 1)].join(" ");
+      index = end + 1;
+    }
+    if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1);
+    if (field === "tools" || field === "notifyTo") {
+      const items = value === "-" ? [] : value.split(",").map((item) => item.trim()).filter(Boolean);
+      if (field === "tools") patch.tools = items;
+      else patch.notifyTo = normalizeChannelIds(items);
+    } else if (field === "notify") {
+      if (value !== "-" && value !== "always" && value !== "error" && value !== "never") {
+        throw new Error("--notify must be one of: always, error, never");
+      }
+      patch.notify = value === "-" ? "" : value;
+    } else {
+      patch[field] = value === "-" ? "" : value;
+    }
+  }
+  if (!tokens.length) throw new Error(SET_USAGE);
+  return patch;
+}
+
+/**
+ * Strips trailing `--flag value` pairs off a command's args, in any order,
+ * so the prompt never has to carry them. Routing (`--to`, `--notify`) and
+ * model config (`--agent`, `--model`, `--thinking`) are recognized; a value
+ * of `-` on a model flag means "none" and is dropped. Only trailing flags
+ * are recognized — a `--to` mid-prompt stays part of the prompt.
  */
 export function parseTrailingFlags(args: string): TrailingFlags {
   let rest = args.trim();
   let to: string[] | undefined;
   let notify: NotifyLevel | undefined;
+  let agent: string | undefined;
+  let model: string | undefined;
+  let thinking: string | undefined;
   for (;;) {
-    const match = /(?:^|\s)--(notify-to|to|notify)\s+([^\s]+)\s*$/.exec(rest);
+    const match = /(?:^|\s)--(notify-to|to|notify|agent|model|thinking)\s+([^\s]+)\s*$/.exec(rest);
     if (!match) break;
-    if (match[1] === "notify") {
-      if (match[2] !== "always" && match[2] !== "error" && match[2] !== "never") {
-        throw new Error("--notify must be one of: always, error, never");
+    const value = match[2];
+    switch (match[1]) {
+      case "notify": {
+        if (value !== "always" && value !== "error" && value !== "never") {
+          throw new Error("--notify must be one of: always, error, never");
+        }
+        notify = value;
+        break;
       }
-      notify = match[2];
-    } else {
-      const ids = normalizeChannelIds(match[2].split(","));
-      if (!ids?.length) throw new Error("--to requires at least one channel id");
-      to = [...(to ?? []), ...ids];
+      case "to":
+      case "notify-to": {
+        const ids = normalizeChannelIds(value.split(","));
+        if (!ids?.length) throw new Error("--to requires at least one channel id");
+        to = [...(to ?? []), ...ids];
+        break;
+      }
+      case "thinking": {
+        assertThinkingLevel(value);
+        thinking = value;
+        break;
+      }
+      case "agent":
+        agent = value === "-" ? undefined : value;
+        break;
+      default:
+        model = value === "-" ? undefined : value;
+        break;
     }
     rest = rest.slice(0, match.index).trimEnd();
   }
-  return { ...(to ? { to } : {}), ...(notify ? { notify } : {}), rest };
+  return {
+    ...(to ? { to } : {}),
+    ...(notify ? { notify } : {}),
+    ...(agent ? { agent } : {}),
+    ...(model ? { model } : {}),
+    ...(thinking ? { thinking } : {}),
+    rest,
+  };
 }
 
 const SCHEDULE_HELP = [
@@ -229,9 +344,14 @@ const SCHEDULE_HELP = [
     (action) => `  ${action.usage.padEnd(Math.max(...SCHEDULE_ACTIONS.map((a) => a.usage.length)) + 1)}${action.description}`,
   ),
   "Trailing flags on /loop, /remind, and /schedule add:",
-  "  --to <id,id>          route this task's notifications to those channels",
-  "  --notify-to <id,id>   alias of --to (the CLI spelling)",
-  "  --notify <level>      always, error (project default), or never",
+  "  --model <id>           model for this task's runs (provider/id, :level shorthand ok)",
+  "  --thinking <level>     off, minimal, low, medium, high, xhigh, max",
+  "  --agent <id>           pi, claude, or codex",
+  "  --to <id,id>           route this task's notifications to those channels",
+  "  --notify-to <id,id>    alias of --to (the CLI spelling)",
+  "  --notify <level>       always, error (project default), or never",
+  "Configure an existing task: /schedule set <id> --model <id> --thinking <level> ...",
+  "  — same flags; a value of - clears a field back to the project and user defaults",
   "Related: /loop <spec> <prompt>, /remind in 45m <prompt>",
 ].join("\n");
 

@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerCommands } from "../src/agents/pi/commands.ts";
+import { registerCommands, parseTrailingFlags, parseSetSpec } from "../src/agents/pi/commands.ts";
 
 type Registered = {
   description: string;
@@ -316,4 +316,157 @@ test("/unschedule is gone and /schedule delete is no longer an alias — remove 
   assert.equal(notices.length, 1);
   assert.equal(notices[0].level, "error");
   assert.match(notices[0].message, /Unknown action "delete"/);
+});
+
+// --- Model configuration: trailing flags at creation, /schedule set after ---
+
+/** A throwaway registry home plus the registered commands, for one test. */
+async function freshSchedule() {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const home = await mkdtemp(join(tmpdir(), "agents-cron-set-"));
+  const previous = process.env.AGENTS_CRON_HOME;
+  process.env.AGENTS_CRON_HOME = home;
+  const { saveRegistry } = await import("../src/registry.ts");
+  await saveRegistry([]);
+  const restore = async () => {
+    if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
+    else delete process.env.AGENTS_CRON_HOME;
+    await rm(home, { recursive: true, force: true });
+  };
+  return { commands: stubPi().commands, restore };
+}
+
+test("parseTrailingFlags strips model config flags and validates thinking", () => {
+  const flags = parseTrailingFlags('"*/5 * * * *" check CI --thinking high --model sonnet:low --agent codex --to feishu');
+  assert.equal(flags.rest, '"*/5 * * * *" check CI');
+  assert.equal(flags.thinking, "high");
+  assert.equal(flags.model, "sonnet:low");
+  assert.equal(flags.agent, "codex");
+  assert.deepEqual(flags.to, ["feishu"]);
+
+  assert.throws(() => parseTrailingFlags("30m p --thinking turbo"), /--thinking must be one of/);
+});
+
+test("parseSetSpec maps flags to a patch; - clears and lists split", () => {
+  const patch = parseSetSpec('--model haiku --thinking max --tools read,bash --notify always --to feishu,mail --name "night audit"');
+  assert.equal(patch.model, "haiku");
+  assert.equal(patch.thinking, "max");
+  assert.deepEqual(patch.tools, ["read", "bash"]);
+  assert.equal(patch.notify, "always");
+  assert.deepEqual(patch.notifyTo, ["feishu", "mail"]);
+  assert.equal(patch.name, "night audit");
+
+  const cleared = parseSetSpec("--model - --thinking - --tools - --notify -");
+  assert.equal(cleared.model, "");
+  assert.equal(cleared.thinking, "");
+  assert.deepEqual(cleared.tools, []);
+  assert.equal(cleared.notify, "");
+
+  assert.throws(() => parseSetSpec(""), /Usage: \/schedule set/);
+  assert.throws(() => parseSetSpec("--model"), /--model requires a value/);
+  assert.throws(() => parseSetSpec("--bogus x"), /Unexpected "--bogus"/);
+  assert.throws(() => parseSetSpec("--notify sometimes"), /--notify must be one of/);
+});
+
+test("/schedule set reconfigures an existing task's model and thinking", async () => {
+  const { commands, restore } = await freshSchedule();
+  const { ctx, notices } = stubCtx();
+  try {
+    const { addTask, listTasks } = await import("../src/task-service.ts");
+    const created = await addTask((ctx as { cwd: string }).cwd, {
+      prompt: "check CI",
+      schedule: { kind: "interval", every: "30m" },
+    });
+
+    await commands.get("schedule")!.handler(`set ${created.id} --model anthropic/claude-opus-4-5 --thinking high`, ctx);
+
+    assert.equal(notices[0].level, "info");
+    assert.match(notices[0].message, new RegExp(`Updated ${created.id}`));
+    assert.match(notices[0].message, /model: anthropic\/claude-opus-4-5/);
+    assert.match(notices[0].message, /thinking: high/);
+    const [stored] = await listTasks((ctx as { cwd: string }).cwd);
+    assert.equal(stored.model, "anthropic/claude-opus-4-5");
+    assert.equal(stored.thinking, "high");
+  } finally {
+    await restore();
+  }
+});
+
+test("/schedule set clears a field with a value of -", async () => {
+  const { commands, restore } = await freshSchedule();
+  const { ctx } = stubCtx();
+  try {
+    const { addTask, listTasks } = await import("../src/task-service.ts");
+    const created = await addTask((ctx as { cwd: string }).cwd, {
+      prompt: "check CI",
+      schedule: { kind: "interval", every: "30m" },
+      model: "haiku",
+      thinking: "low",
+    });
+
+    await commands.get("schedule")!.handler(`set ${created.id} --thinking -`, ctx);
+
+    const [stored] = await listTasks((ctx as { cwd: string }).cwd);
+    assert.equal("thinking" in stored, false);
+    assert.equal(stored.model, "haiku"); // untouched fields stay
+  } finally {
+    await restore();
+  }
+});
+
+test("/loop pins the model at creation with trailing flags", async () => {
+  const { commands, restore } = await freshSchedule();
+  const { ctx } = stubCtx();
+  try {
+    await commands.get("loop")!.handler("30m check CI --model sonnet:high --thinking low --agent pi", ctx);
+
+    const { listTasks } = await import("../src/task-service.ts");
+    const [task] = await listTasks((ctx as { cwd: string }).cwd);
+    assert.equal(task.prompt, "check CI");
+    assert.equal(task.model, "sonnet:high");
+    assert.equal(task.thinking, "low");
+    assert.equal(task.agent, "pi");
+  } finally {
+    await restore();
+  }
+});
+
+test("an invalid trailing --thinking errors without creating a task", async () => {
+  const { commands, restore } = await freshSchedule();
+  const { ctx, notices } = stubCtx();
+  try {
+    await commands.get("loop")!.handler("30m check CI --thinking very", ctx);
+
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0].level, "error");
+    assert.match(notices[0].message, /--thinking must be one of/);
+    const { loadRegistry } = await import("../src/registry.ts");
+    assert.deepEqual(await loadRegistry(), []);
+  } finally {
+    await restore();
+  }
+});
+
+test("/schedule show lists the task's model configuration", async () => {
+  const { commands, restore } = await freshSchedule();
+  const { ctx, notices } = stubCtx();
+  try {
+    const { addTask } = await import("../src/task-service.ts");
+    const created = await addTask((ctx as { cwd: string }).cwd, {
+      prompt: "check CI",
+      schedule: { kind: "interval", every: "30m" },
+      model: "anthropic/claude-opus-4-5",
+      thinking: "high",
+      agent: "pi",
+    });
+
+    await commands.get("schedule")!.handler(`show ${created.id}`, ctx);
+
+    const text = notices[0].message;
+    assert.match(text, /agent: pi/);
+    assert.match(text, /model: anthropic\/claude-opus-4-5/);
+    assert.match(text, /thinking: high/);
+  } finally {
+    await restore();
+  }
 });
