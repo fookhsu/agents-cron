@@ -1,6 +1,6 @@
 import { CRON_NICKNAMES } from "../../scheduling.ts";
 import { loadNotifyConfig } from "../../notify/config.ts";
-import { listTasks } from "../../task-service.ts";
+import { listTasks, THINKING_LEVELS } from "../../task-service.ts";
 import { listRuns } from "../../runs.ts";
 import { schedulerPaths } from "../../paths.ts";
 import { resolve } from "node:path";
@@ -33,6 +33,7 @@ export type ScheduleAction = { name: string; usage: string; description: string 
 export const SCHEDULE_ACTIONS: readonly ScheduleAction[] = [
   { name: "list", usage: "list", description: "list tasks (default action)" },
   { name: "add", usage: "add <spec> <prompt>", description: 'create a task; spec: 30m, @daily, or "0 9 * * 1-5"' },
+  { name: "set", usage: "set <id> <flags>", description: "configure a task: --model, --thinking, --agent, --cwd, --tools, --name, --notify, --to" },
   { name: "enable", usage: "enable <id>", description: "resume a paused task" },
   { name: "disable", usage: "disable <id>", description: "pause a task" },
   { name: "run", usage: "run <id>", description: "run a task now; its schedule is untouched" },
@@ -48,6 +49,27 @@ export const SCHEDULE_ACTIONS: readonly ScheduleAction[] = [
 ];
 
 const NOTIFY_LEVELS = ["always", "error", "never"] as const;
+
+/** /schedule set's flags, in display order — mirrors SET_FLAG_TO_FIELD in commands.ts. */
+const SET_FLAGS: ReadonlyArray<{ flag: string; description: string }> = [
+  { flag: "--model", description: "model id for this task's runs (provider/id, :level shorthand ok)" },
+  { flag: "--thinking", description: `thinking level: ${THINKING_LEVELS.join(", ")}` },
+  { flag: "--agent", description: "agent adapter: pi, claude, or codex" },
+  { flag: "--name", description: "display name" },
+  { flag: "--cwd", description: "working directory, relative to the project" },
+  { flag: "--tools", description: "comma-separated tool allowlist" },
+  { flag: "--notify", description: "always, error, or never" },
+  { flag: "--to", description: "notification channel ids, comma-separated" },
+];
+
+/** Suggests /schedule set's flags once the id is typed. */
+export function completeSetFlags(id: string, partial: string): CompletionItem[] | null {
+  if (partial && !partial.startsWith("--")) return null;
+  const matched = SET_FLAGS.filter(({ flag }) => flag.startsWith(partial));
+  return matched.length
+    ? matched.map(({ flag, description }) => ({ value: `set ${id} ${flag}`, label: flag, description }))
+    : null;
+}
 
 /** A notification channel as seen by completion: its routing id and type. */
 export type ChannelOption = { id: string; type: string };
@@ -142,12 +164,36 @@ function joinArgs(head: string, tail: string): string {
   return head.trimEnd() ? `${head.trimEnd()} ${tail}` : tail;
 }
 
+const THINKING_DESCRIPTIONS: Record<(typeof THINKING_LEVELS)[number], string> = {
+  off: "disable thinking",
+  minimal: "barely think",
+  low: "light thinking",
+  medium: "moderate thinking",
+  high: "deep thinking",
+  xhigh: "extra-deep thinking",
+  max: "maximum thinking",
+};
+
 /**
- * Completes the trailing routing flags every creation command accepts. The
- * `--to` value is a comma-separated id list, so the segment after the last
- * comma is completed and already-typed ids are deduped away.
+ * Completes the trailing routing and model-config flags every creation
+ * command accepts, plus /schedule set's flag values. The `--to` value is a
+ * comma-separated id list, so the segment after the last comma is completed
+ * and already-typed ids are deduped away.
  */
 export function completeTrailingFlags(args: string, channels: readonly ChannelOption[]): CompletionItem[] | null {
+  const thinking = /(?:^|\s)(--thinking)(?:\s+(\S*))?$/.exec(args);
+  if (thinking) {
+    const partial = thinking[2] ?? "";
+    const levels = THINKING_LEVELS.filter((level) => level.startsWith(partial));
+    return levels.length
+      ? levels.map((level) => ({
+          value: joinArgs(args.slice(0, thinking.index), `--thinking ${level}`),
+          label: level,
+          description: THINKING_DESCRIPTIONS[level],
+        }))
+      : null;
+  }
+
   const notify = /(?:^|\s)(--notify)(?:\s+(\S*))?$/.exec(args);
   if (notify) {
     const partial = notify[2] ?? "";
@@ -254,6 +300,12 @@ export async function scheduleArgumentCompletions(args: string): Promise<Complet
       const rest = args.replace(/^\s*add\s+/, "");
       const inner = await taskSpecArgumentCompletions(rest);
       return inner?.map((item) => ({ ...item, value: `add ${item.value}` })) ?? null;
+    }
+    // Past the id, /schedule set only takes flags: suggest their names and,
+    // once one is typed, its values (channels included).
+    if (tokens[0] === "set" && tokens.length >= 2) {
+      const { partial } = splitCompleting(args);
+      return (await routingFlagCompletions(args)) ?? completeTrailingFlags(args, await channelOptions(cwd)) ?? completeSetFlags(tokens[1], partial);
     }
 
     const needs = scheduleCompletionNeeds(args);

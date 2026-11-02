@@ -10,6 +10,7 @@ import {
   completeReminderShape,
   completeScheduleActions,
   completeScheduleArguments,
+  completeSetFlags,
   completeTrailingFlags,
   endsInRoutingFlag,
   scheduleCompletionNeeds,
@@ -96,6 +97,8 @@ test("scheduleCompletionNeeds reads the store only for the branches that need it
   assert.deepEqual(scheduleCompletionNeeds("show "), { tasks: true, runs: false });
   assert.deepEqual(scheduleCompletionNeeds("open run_"), { tasks: false, runs: true });
   assert.deepEqual(scheduleCompletionNeeds("export --a"), { tasks: false, runs: false });
+  // set suggests ids like every id-taking action once its usage shows <id>.
+  assert.deepEqual(scheduleCompletionNeeds("set "), { tasks: true, runs: false });
   assert.equal(scheduleCompletionNeeds("list "), null);
   assert.equal(scheduleCompletionNeeds("enable a b"), null);
 });
@@ -130,6 +133,73 @@ test("--to completes configured channel ids, keeps the typed spelling, and dedup
   );
   assert.equal(completeTrailingFlags("--to feishu,f", channels), null);
   assert.equal(completeTrailingFlags("--to f", []), null);
+});
+
+test("--thinking completes its levels with effort descriptions", () => {
+  assert.deepEqual(
+    completeTrailingFlags("30m check CI --thinking ", [])?.map((item) => item.value),
+    ["30m check CI --thinking off", "30m check CI --thinking minimal", "30m check CI --thinking low", "30m check CI --thinking medium", "30m check CI --thinking high", "30m check CI --thinking xhigh", "30m check CI --thinking max"],
+  );
+  assert.deepEqual(
+    completeTrailingFlags("check CI --thinking m", [])?.map((item) => item.value),
+    ["check CI --thinking minimal", "check CI --thinking medium", "check CI --thinking max"],
+  );
+  assert.match(completeTrailingFlags("--thinking hi", [])?.[0].description ?? "", /deep thinking/);
+  assert.equal(completeTrailingFlags("--thinking turbo", []), null);
+});
+
+// --- /schedule set flags ---
+
+test("set suggests task ids first, then its configuration flags", () => {
+  const tasks = [task("task_alpha")];
+
+  assert.deepEqual(
+    completeScheduleArguments("set ", tasks, [])?.map((item) => item.value),
+    ["set task_alpha"],
+  );
+
+  // After the id: flags are the only valid continuation, so an empty or
+  // --partial word suggests them as full replacement values.
+  assert.deepEqual(
+    completeSetFlags("task_alpha", "")?.map((item) => item.value),
+    [
+      "set task_alpha --model",
+      "set task_alpha --thinking",
+      "set task_alpha --agent",
+      "set task_alpha --name",
+      "set task_alpha --cwd",
+      "set task_alpha --tools",
+      "set task_alpha --notify",
+      "set task_alpha --to",
+    ],
+  );
+  assert.deepEqual(completeSetFlags("task_alpha", "--m")?.map((item) => item.value), ["set task_alpha --model"]);
+  assert.equal(completeSetFlags("task_alpha", "model"), null); // not typing a flag
+});
+
+test("set flag values complete through the trailing-flag machinery", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const home = await mkdtemp(join(tmpdir(), "agents-cron-setcomp-"));
+  const previous = process.env.AGENTS_CRON_HOME;
+  process.env.AGENTS_CRON_HOME = home;
+  try {
+    const { saveRegistry } = await import("../src/registry.ts");
+    await saveRegistry([]);
+    const project = await mkdtemp(join(tmpdir(), "agents-cron-setcomp-proj-"));
+    rememberProjectCwd(project);
+
+    const thinking = await scheduleArgumentCompletions("set task_alpha --thinking ");
+    assert.deepEqual(thinking?.map((item) => item.value), ["set task_alpha --thinking off", "set task_alpha --thinking minimal", "set task_alpha --thinking low", "set task_alpha --thinking medium", "set task_alpha --thinking high", "set task_alpha --thinking xhigh", "set task_alpha --thinking max"]);
+
+    const flags = await scheduleArgumentCompletions("set task_alpha --mo");
+    assert.deepEqual(flags?.map((item) => item.value), ["set task_alpha --model"]);
+
+    await rm(project, { recursive: true, force: true });
+  } finally {
+    if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
+    else delete process.env.AGENTS_CRON_HOME;
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 test("endsInRoutingFlag is the cheap probe for reading channel config", () => {
