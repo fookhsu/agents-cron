@@ -18,13 +18,15 @@ beforeEach(async () => {
   await saveRegistry([]);
 });
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { AgentRegistry } from "../src/agents/registry.ts";
 import type { AgentAdapter, AgentRunResult } from "../src/agents/types.ts";
 import { main, type CliDeps } from "../src/cli.ts";
+import { dashboardStateFile } from "../src/dashboard/lifecycle.ts";
 import { acquireLock } from "../src/lock.ts";
 import { schedulerPaths } from "../src/paths.ts";
 import { listRuns, writeRun } from "../src/runs.ts";
@@ -582,4 +584,33 @@ test("import of a missing or malformed file exits 2 with the offending path", as
   const parsed = capture(dir, new FakeAgent());
   assert.equal(await main(["import", bad], parsed.deps), 2);
   assert.match(parsed.stderr.join("\n"), /version: 9/);
+});
+
+// --- dashboard lifecycle (no child is spawned here; the lifecycle suite owns that) ---
+
+test("dashboard status and stop report an unstarted dashboard", async () => {
+  const dir = await project();
+  const { deps, stdout } = capture(dir, new FakeAgent());
+
+  assert.equal(await main(["dashboard", "status"], deps), 0);
+  assert.match(stdout.join("\n"), /Not running/);
+
+  stdout.length = 0;
+  assert.equal(await main(["dashboard", "stop"], deps), 0);
+  assert.match(stdout.join("\n"), /No dashboard running/);
+});
+
+test("dashboard status reports a dead registration as stale and removes it", async () => {
+  const dir = await project();
+  const { deps, stdout } = capture(dir, new FakeAgent());
+  const file = dashboardStateFile(dir);
+  await mkdir(dirname(file), { recursive: true });
+  await writeFile(
+    file,
+    JSON.stringify({ pid: 999999999, port: 7383, url: "http://127.0.0.1:7383/", startedAt: "2026-11-02T09:00:00.000Z" }),
+  );
+
+  assert.equal(await main(["dashboard", "status"], deps), 0);
+  assert.match(stdout.join("\n"), /Not running \(removed stale state\)/);
+  assert.equal(existsSync(file), false);
 });

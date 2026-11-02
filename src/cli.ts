@@ -35,6 +35,7 @@ const USAGE = [
   "  import <file> [--dry-run]                    Import definitions here; new tasks start disabled",
   "  prune [--keep <n>] [--project <path>]   Keep the newest n runs per task (default 20)",
   "  dashboard [--port <n>] [--project <path>]   Serve a local read-only dashboard",
+  "  dashboard start|stop|status [--port <n>]    Run the dashboard detached, or manage it",
   "  migrate-sessions [--dry-run] [--project <path>]   Carry legacy transcripts into Pi's session store",
   "  test-notify [--channel <id>] [--project <path>]   Send a test notification",
   "  setup-notify                        Interactive email/Feishu channel wizard",
@@ -117,7 +118,7 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
       case "prune":
         return await commandPrune(project, explicitProject, flags, out);
       case "dashboard":
-        return await commandDashboard(project, flags, out, err);
+        return await commandDashboard(project, positional, flags, out, err);
       case "migrate-sessions":
         return await commandMigrateSessions(project, explicitProject, flags, out, err);
       case "test-notify":
@@ -526,29 +527,110 @@ function printMigrationReport(
 }
 
 /**
- * Serves the read-only dashboard until interrupted. The server is localhost
- * only and mutates nothing, so it never touches the run lock.
+ * The dashboard's two lives. Bare `dashboard` serves in the foreground until
+ * interrupted; `start`, `stop`, and `status` manage a detached instance
+ * through the project's registration file. The server is localhost only and
+ * mutates nothing, so it never touches the run lock.
  */
 async function commandDashboard(
   project: string,
+  positional: string[],
   flags: Map<string, string | boolean>,
   out: (line: string) => void,
   err: (line: string) => void,
 ): Promise<number> {
   const { startDashboard, DEFAULT_DASHBOARD_PORT } = await import("./dashboard/server.ts");
-  const port = Number(stringFlag(flags, "port") ?? DEFAULT_DASHBOARD_PORT);
+  const {
+    dashboardStatus,
+    logFile,
+    removeDashboardState,
+    startDetachedDashboard,
+    stopDashboard,
+    writeDashboardState,
+  } = await import("./dashboard/lifecycle.ts");
+
+  const subcommand = positional[0];
+  if (subcommand === "start") {
+    const state = (await startDetachedDashboard(project, parsePort(flags, 0))).state;
+    out(`Dashboard ${state.url} (pid ${state.pid})`);
+    out(`logs: ${logFile(project)}`);
+    return 0;
+  }
+  if (subcommand === "stop") {
+    const result = await stopDashboard(project);
+    if (result.outcome === "refused" && result.state) {
+      err(
+        `Refusing to stop pid ${result.state.pid}: port ${result.state.port} does not answer like this dashboard — kill it manually if you are sure`,
+      );
+      return 1;
+    }
+    out(
+      result.outcome === "stopped"
+        ? `Stopped dashboard (pid ${result.state?.pid})`
+        : result.outcome === "stale"
+          ? "Removed stale dashboard state"
+          : "No dashboard running",
+    );
+    return 0;
+  }
+  if (subcommand === "status") {
+    const status = await dashboardStatus(project);
+    if (!status.running) {
+      out(`Not running${status.stale ? " (removed stale state)" : ""}`);
+      return 0;
+    }
+    const health = status.healthy ? "" : ", not responding — likely wedged";
+    out(`Running: ${status.state.url} (pid ${status.state.pid}, since ${status.state.startedAt})${health}`);
+    return 0;
+  }
+  if (subcommand !== undefined) {
+    throw new Error(`dashboard: unknown subcommand "${subcommand}"; use start, stop, or status`);
+  }
+
+  const port = parsePort(flags, DEFAULT_DASHBOARD_PORT);
+  let handle: Awaited<ReturnType<typeof startDashboard>>;
+  try {
+    handle = await startDashboard({ projectDir: project, port });
+  } catch (error) {
+    // A second foreground dashboard usually means one is already serving this
+    // project; point at it instead of only reporting EADDRINUSE.
+    const status = await dashboardStatus(project);
+    if (status.running && status.healthy) {
+      err(`A dashboard for this project is already running: ${status.state.url} — stop it with: agents-cron dashboard stop`);
+    }
+    throw error;
+  }
+
+  await writeDashboardState(project, {
+    pid: process.pid,
+    port: Number(new URL(handle.url).port),
+    url: handle.url,
+    startedAt: new Date().toISOString(),
+  });
+  out(`agents-cron dashboard: ${handle.url}`);
+  out("Read-only view of tasks and runs. Press Ctrl-C to stop.");
+
+  // Owning the registration means clearing it on the way out, whenever that is.
+  const shutdown = (): void => {
+    void removeDashboardState(project, process.pid).finally(() => process.exit(0));
+  };
+  process.on("SIGINT", () => {
+    err("");
+    shutdown();
+  });
+  process.on("SIGTERM", shutdown);
+  return await new Promise<never>(() => undefined); // serve until interrupted
+}
+
+/** --port, validated; a missing flag takes the caller's default. */
+function parsePort(flags: Map<string, string | boolean>, fallback: number): number {
+  const raw = stringFlag(flags, "port");
+  if (raw === undefined) return fallback;
+  const port = Number(raw);
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     throw new Error("--port must be an integer between 0 and 65535");
   }
-
-  const handle = await startDashboard({ projectDir: project, port });
-  out(`agents-cron dashboard: ${handle.url}`);
-  out("Read-only view of tasks and runs. Press Ctrl-C to stop.");
-  process.on("SIGINT", () => {
-    err("");
-    process.exit(0);
-  });
-  return await new Promise<never>(() => undefined); // serve until interrupted
+  return port;
 }
 
 function scheduleFromFlags(flags: Map<string, string | boolean>): ScheduleInput {
