@@ -35,6 +35,7 @@ store with the same rules:
 agents-cron add --prompt "<text>" (--at <iso> | --every <duration> | --cron "<expr>") [options]
 agents-cron list [--json]        # current project's tasks first, then all others
 agents-cron show <taskId> [--json]  # one task in full, prompt included
+agents-cron set <taskId> [options]  # reconfigure: --model --thinking --agent --cwd --tools --name --notify
 agents-cron enable <taskId> | disable <taskId> | remove <taskId>
 agents-cron clear                    # remove every task bound to the current project
 agents-cron export [--out <file>] [--all] [taskId...]   # definitions as JSON; import starts disabled
@@ -48,6 +49,13 @@ agents-cron test-notify [--channel <id>]
 IDs resolve across the whole registry, so these commands manage any task from
 any directory. One global crontab line (`agents-cron run-due --all`) drives
 every project; a per-project line still runs only that project.
+
+A task's model is configurable per task: pin `--model <id>` and `--thinking
+<level>` (off, minimal, low, medium, high, xhigh, max) on `add`, or change
+them later with `set` — an empty value (`--model=`) clears the override back
+to the project and user defaults. In Pi, the same fields are trailing flags
+on `/loop`, `/remind`, and `/schedule add`, or `/schedule set <id>` flags
+afterwards (a value of `-` clears).
 
 The dashboard is a read-only local web view (`127.0.0.1:7383` by default) of
 tasks, run history, and per-run summaries, errors, and session records — the

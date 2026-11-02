@@ -101,7 +101,8 @@ trigger `manual` and leave its schedule untouched.
 - Crash recovery: stale runs are reclaimed on the next invocation
 - Per-task and per-project configuration overrides
 - Per-run Markdown reports next to the run records — what ran, how it went, where the transcript lives
-- Agent tool plus slash commands for management, with argument completion: `/schedule ` suggests actions and real task/run ids, `/loop` suggests cron nicknames (`@daily`, …), and every creation command completes its trailing `--to <channel>` / `--notify <level>` flags from the project's notify config
+- Agent tool plus slash commands for management, with argument completion: `/schedule ` suggests actions and real task/run ids, `/loop` suggests cron nicknames (`@daily`, …), and every creation command completes its trailing `--to <channel>` / `--notify <level>` / `--thinking <level>` flags from the project's notify config
+- Per-task model configuration: pin `model` and `thinking` at creation or later (`agents-cron set`, `/schedule set`, `schedule_task update`), with the thinking level validated up front
 
 ## Install
 
@@ -170,6 +171,7 @@ agents-cron run <taskId> [--project <path>] [--agent <id>]
 agents-cron list [--json]                              # current project first, then others
 agents-cron show <taskId> [--json]                     # one task in full, prompt included
 agents-cron add --prompt <text> (--at <iso>|--every <duration>|--cron <expr>) [--agent <id>] [options]
+agents-cron set <taskId> [options]                   # reconfigure: --model --thinking --agent --cwd --tools --name --notify
 agents-cron enable <taskId> | disable <taskId> | remove <taskId>
 agents-cron clear                                      # remove every task bound to the current project
 agents-cron export [--out <file>] [--all] [taskId...]  # task definitions as JSON
@@ -181,7 +183,11 @@ agents-cron test-notify [--channel <id>]
 ```
 
 `--agent` selects the agent adapter (see [Agents](#agents)); it sets the task's
-agent on `add` and the fallback agent on `run-due` and `run`.
+agent on `add` and the fallback agent on `run-due` and `run`. `set`
+reconfigures an existing task's definition — model, thinking level, agent,
+cwd, tools, name, notify level, and routing — without touching its schedule
+or run history; an empty value clears the override back to the project and
+user defaults (`--model=`, `--thinking=`, `--tools=`, `--notify=`).
 
 Tasks live in the global registry, so `run`, `enable`, `disable`, and
 `remove` act on any task from any directory; `add` binds the task to the
@@ -312,6 +318,9 @@ file permissions), and by default only **failed** runs notify:
 /schedule add "0 9 * * 1-5" check CI status
 /remind in 45m review the release --to feishu --notify always
 /schedule add 30m check CI status --to feishu,mail
+/schedule add 30m triage the inbox --model sonnet:high --thinking low
+/schedule set <id> --model anthropic/claude-opus-4-5 --thinking high
+/schedule set <id> --thinking -                    # clear back to the defaults
 /schedule list
 /schedule enable <id>
 /schedule disable <id>
@@ -336,7 +345,14 @@ the prompt. Nicknames are `@yearly`, `@annually`, `@monthly`, `@weekly`,
 prompt: `--to <id,id>` routes the task's notifications to those channels, and
 `--notify always|error|never` sets its level — so
 `/remind in 45m review the release --to feishu --notify always` reaches you on
-Feishu the moment the run finishes.
+Feishu the moment the run finishes. The same position pins the run's model:
+`--model <id>`, `--thinking <level>`, and `--agent <id>`.
+
+`/schedule set <id> <flags>` reconfigures an existing task with the same
+fields — `--model`, `--thinking`, `--agent`, `--name`, `--cwd`, `--tools a,b`,
+`--notify <level>`, `--to <ids>` — without touching its schedule or run
+history. A value of `-` clears a field back to the project and user defaults.
+Flag names and `--thinking` levels complete as you type.
 
 `/schedule open <runId>` prints the Task Session file path and suggests
 `pi --session <path>`. Task Sessions are never merged into the current session.
@@ -344,11 +360,12 @@ Feishu the moment the run finishes.
 
 ## Agent tool
 
-The `schedule_task` tool supports `add`, `list`, `enable`, `disable`, `delete`,
-`run`, `runs`, and `clear`. It is registered with `deferred` exposure: it stays
-out of the resident tool manifest until the model finds it with pi's built-in
-`tool_search`, which the extension activates on session start. On pi versions
-without deferred exposure the tool simply registers as before.
+The `schedule_task` tool supports `add`, `update`, `list`, `show`, `enable`,
+`disable`, `delete`, `run`, `runs`, and `clear`. It is registered with
+`deferred` exposure: it stays out of the resident tool manifest until the
+model finds it with pi's built-in `tool_search`, which the extension activates
+on session start. On pi versions without deferred exposure the tool simply
+registers as before.
 
 ```json
 {
@@ -363,6 +380,17 @@ without deferred exposure the tool simply registers as before.
 
 `notify` sets the task's notification level and `notifyTo` routes it to named
 channels from `.agents/cron/config.json`; both are optional and independent.
+`update` reconfigures an existing task by `id` with the same fields — pass
+`model: ""` (or an empty `tools`/`notifyTo` array) to clear an override:
+
+```json
+{
+  "action": "update",
+  "id": "task_a1b2c3d4",
+  "model": "anthropic/claude-opus-4-5",
+  "thinking": "high"
+}
+```
 
 Deleting and clearing tasks requires interactive confirmation; creating a task does not. The `/schedule remove` and `/schedule clear` commands ask for the same confirmation.
 
@@ -450,7 +478,8 @@ the project and user settings; omitting `tools` keeps the agent's default tool
 set. Omitting `agent` uses the adapter that `run-due` selected (the built-in Pi
 adapter by default).
 
-The same overrides are available on the CLI and the Agent tool:
+The same overrides are available on the CLI and the Agent tool, and can be
+changed after creation:
 
 ```bash
 agents-cron add \
@@ -461,7 +490,19 @@ agents-cron add \
   --thinking high \
   --cwd packages/api \
   --tools read,bash,grep
+
+# reconfigure an existing task; an empty value clears the override
+agents-cron set task_a1b2c3d4 --model sonnet --thinking xhigh
+agents-cron set task_a1b2c3d4 --model= --thinking=
 ```
+
+In Pi, the same fields are trailing flags on the creation commands
+(`/loop 30m triage --model sonnet --thinking low`) and `/schedule set <id>`
+flags afterwards. `--thinking` accepts the levels Pi does — `off`, `minimal`,
+`low`, `medium`, `high`, `xhigh`, `max` — and is validated when the task is
+written, so a typo fails the `set` instead of every 3 a.m. run. A model id
+may carry Pi's `:level` shorthand (`sonnet:high`); Claude Code and Codex
+ignore `thinking`.
 
 ```json
 {

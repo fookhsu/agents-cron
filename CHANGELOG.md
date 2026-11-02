@@ -7,6 +7,24 @@ new one as an in-terminal notice; `/schedule changelog` shows this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Per-task model configuration, before or after creation. `/loop`, `/remind`,
+  and `/schedule add` accept trailing `--model <id>`, `--thinking <level>`,
+  and `--agent <id>` flags; `/schedule set <id> <flags>` reconfigures an
+  existing task (same fields plus `--name`, `--cwd`, `--tools`, `--notify`,
+  `--to`), a value of `-` clearing a field back to the project and user
+  defaults. `agents-cron set <taskId> [options]` brings the same to the CLI
+  (an empty value clears), and `schedule_task` gains an `update` action.
+  `--thinking` is validated when a task is written — `off`, `minimal`, `low`,
+  `medium`, `high`, `xhigh`, `max` — so a typo fails the `set`, not every
+  3 a.m. run. Completions follow: `/schedule set` completes ids then its
+  flags, and `--thinking <level>` completes everywhere it is accepted.
+  `/schedule show` and `schedule_task show` now list agent, model, thinking,
+  cwd, and tools alongside the notify routing.
+
 ## [0.15.0] - 2026-10-30
 
 ### Added
