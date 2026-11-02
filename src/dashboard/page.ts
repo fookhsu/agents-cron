@@ -161,7 +161,10 @@ function renderTasks(tasks) {
     nameCell.appendChild(document.createTextNode(task.name || task.id));
     const idLine = el("div", "dim", task.id);
     nameCell.appendChild(idLine);
-    if (task.agent) nameCell.appendChild(el("div", "dim", "@" + task.agent));
+    // The run configuration line: agent, model, thinking — what a run of this
+    // task will actually use beyond the project defaults.
+    const pinned = [task.agent ? "@" + task.agent : null, task.model, task.thinking].filter(Boolean).join(" · ");
+    if (pinned) nameCell.appendChild(el("div", "dim", pinned));
     row.appendChild(nameCell);
     row.appendChild(el("td", "id", scheduleLabel(task.schedule)));
     row.appendChild(el("td", "id", task.agent || "pi"));
