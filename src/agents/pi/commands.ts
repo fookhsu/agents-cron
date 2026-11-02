@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { dashboardStatus, startDetachedDashboard, stopDashboard } from "../../dashboard/lifecycle.ts";
 import { readRun, listRunsForTask } from "../../runs.ts";
 import { runTask } from "../../runner.ts";
 import { normalizeChannelIds } from "../../notify/config.ts";
@@ -123,6 +124,11 @@ export function registerCommands(pi: ExtensionAPI): void {
           if (!run) throw new Error(`Run not found: ${runId}`);
           if (!run.sessionFile) throw new Error(`Run ${runId} has no session file`);
           ctx.ui.notify(`Task Session: ${run.sessionFile}\nOpen it with: pi --session ${run.sessionFile}`, "info");
+          return;
+        }
+
+        if (action === "dashboard") {
+          await dashboardAction(ctx, tokens[1]);
           return;
         }
 
@@ -362,6 +368,51 @@ async function guard(ctx: CommandContext, run: () => Promise<void>): Promise<voi
   } catch (error) {
     ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
   }
+}
+
+/**
+ * `/schedule dashboard [start|stop|status]`: the dashboard is a detached
+ * child by design, so it keeps watching cron runs after Pi closes. Stopping
+ * it is explicit — one command, health-checked, never a session hook.
+ */
+async function dashboardAction(ctx: CommandContext, sub: string | undefined): Promise<void> {
+  const action = sub ?? "start";
+  if (action === "start") {
+    const { state } = await startDetachedDashboard(ctx.cwd);
+    ctx.ui.notify(`Dashboard ${state.url} (pid ${state.pid})\nstop with /schedule dashboard stop`, "info");
+    return;
+  }
+  if (action === "stop") {
+    const result = await stopDashboard(ctx.cwd);
+    if (result.outcome === "refused" && result.state) {
+      ctx.ui.notify(
+        `Refusing to stop pid ${result.state.pid}: port ${result.state.port} does not answer like this dashboard — kill it manually if you are sure`,
+        "error",
+      );
+      return;
+    }
+    ctx.ui.notify(
+      result.outcome === "stopped"
+        ? `Stopped dashboard (pid ${result.state?.pid})`
+        : result.outcome === "stale"
+          ? "Removed stale dashboard state"
+          : "No dashboard running",
+      "info",
+    );
+    return;
+  }
+  if (action === "status") {
+    const status = await dashboardStatus(ctx.cwd);
+    const health = status.running && !status.healthy ? ", not responding — likely wedged" : "";
+    ctx.ui.notify(
+      status.running
+        ? `Running: ${status.state.url} (pid ${status.state.pid}, since ${status.state.startedAt})${health}`
+        : `Not running${status.stale ? " (removed stale state)" : ""}`,
+      "info",
+    );
+    return;
+  }
+  throw new Error(`Unknown dashboard action "${action}". Use /schedule dashboard [start|stop|status]`);
 }
 
 async function executeNow(ctx: CommandContext, id: string): Promise<void> {

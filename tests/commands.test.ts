@@ -470,3 +470,40 @@ test("/schedule show lists the task's model configuration", async () => {
     await restore();
   }
 });
+
+// --- /schedule dashboard: the detached lifecycle ---
+
+test("/schedule dashboard status reports a dashboard that is not running", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const home = await mkdtemp(join(tmpdir(), "agents-cron-dash-cmd-"));
+  const previous = process.env.AGENTS_CRON_HOME;
+  process.env.AGENTS_CRON_HOME = home;
+  const { commands } = stubPi();
+  const { ctx, notices } = stubCtx();
+  try {
+    const { saveRegistry } = await import("../src/registry.ts");
+    await saveRegistry([]);
+
+    await commands.get("schedule")!.handler("dashboard status", ctx);
+
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0].level, "info");
+    assert.match(notices[0].message, /Not running/);
+  } finally {
+    if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
+    else delete process.env.AGENTS_CRON_HOME;
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("/schedule dashboard with an unknown action names the valid forms", async () => {
+  const { commands } = stubPi();
+  const { ctx, notices } = stubCtx();
+
+  await commands.get("schedule")!.handler("dashboard bogus", ctx);
+
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].level, "error");
+  assert.match(notices[0].message, /Unknown dashboard action "bogus"/);
+  assert.match(notices[0].message, /\/schedule dashboard \[start\|stop\|status\]/);
+});

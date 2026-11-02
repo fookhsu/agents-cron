@@ -90,6 +90,19 @@ test("export completes only its flag, and only when a flag is being typed", () =
   assert.equal(completeScheduleArguments("export agents-cron", [], []), null);
 });
 
+test("dashboard completes its lifecycle subactions only", () => {
+  assert.deepEqual(
+    completeScheduleArguments("dashboard ", [], [])?.map((item) => item.value),
+    ["dashboard stop", "dashboard status"],
+  );
+  assert.deepEqual(
+    completeScheduleArguments("dashboard st", [], [])?.map((item) => item.value),
+    ["dashboard stop", "dashboard status"],
+  );
+  assert.equal(completeScheduleArguments("dashboard stop x", [], []), null);
+  assert.deepEqual(scheduleCompletionNeeds("dashboard "), { tasks: false, runs: false });
+});
+
 test("scheduleCompletionNeeds reads the store only for the branches that need it", () => {
   assert.deepEqual(scheduleCompletionNeeds(""), { tasks: false, runs: false });
   // Still typing the first word: action suggestions, no store read.

@@ -41,11 +41,18 @@ export const SCHEDULE_ACTIONS: readonly ScheduleAction[] = [
   { name: "runs", usage: "runs <id>", description: "list run records" },
   { name: "show", usage: "show <id>", description: "show a task's scheduling facts and prompt" },
   { name: "open", usage: "open <runId>", description: "show a run's Task Session path" },
+  { name: "dashboard", usage: "dashboard [start|stop|status]", description: "serve this project's read-only dashboard in the background" },
   { name: "export", usage: "export [file] [--all]", description: "write task definitions as JSON (default agents-cron.tasks.json)" },
   { name: "import", usage: "import <file>", description: "import definitions into this project; tasks start disabled" },
   { name: "changelog", usage: "changelog", description: "show the shipped changelog" },
   { name: "clear", usage: "clear", description: "delete all tasks" },
   { name: "help", usage: "help", description: "show this help" },
+];
+
+/** The dashboard's lifecycle subactions, suggested after `dashboard `. */
+const DASHBOARD_SUBACTIONS: ReadonlyArray<{ name: string; description: string }> = [
+  { name: "stop", description: "reclaim the background dashboard" },
+  { name: "status", description: "is it running, and where" },
 ];
 
 const NOTIFY_LEVELS = ["always", "error", "never"] as const;
@@ -106,6 +113,7 @@ export function scheduleCompletionNeeds(args: string): { tasks: boolean; runs: b
   const action = tokens[0];
   if (actionsWithPlaceholder("<id>").includes(action)) return { tasks: true, runs: false };
   if (actionsWithPlaceholder("<runId>").includes(action)) return { tasks: false, runs: true };
+  if (action === "dashboard") return { tasks: false, runs: false };
   if (action === "export" && partial.startsWith("-")) return { tasks: false, runs: false };
   return null;
 }
@@ -146,6 +154,13 @@ export function completeScheduleArguments(
           label: run.runId,
           description: `[${run.status}] ${run.trigger} — ${formatDate(run.finishedAt ?? run.startedAt)}`,
         }))
+      : null;
+  }
+
+  if (action === "dashboard") {
+    const matched = DASHBOARD_SUBACTIONS.filter((sub) => sub.name.startsWith(partial));
+    return matched.length
+      ? matched.map((sub) => ({ value: `dashboard ${sub.name}`, label: sub.name, description: sub.description }))
       : null;
   }
 
