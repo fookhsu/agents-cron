@@ -92,6 +92,31 @@ If `agents-cron` is not on `PATH`, call the installed binary directly:
 `"$HOME/.pi/agent/npm/node_modules/.bin/agents-cron"` for a global install or
 `.pi/npm/node_modules/.bin/agents-cron` for a project install.
 
+## When the work belongs to a pod
+
+Some asks carry two signals at once, and a schedule is only half of the answer:
+
+> 「每天早上 9:00 汇总 GitHub CI 失败，产出一份报告，直到我明确说停」
+
+`每天 9:00` is a time rule (yours); `直到我说停` is a role that must stay alive
+(`spawn_pod`, agents-pod). Read two axes before creating anything —
+**trigger** (`time` · `message` · `role alive`) × **work** (`stateless per
+firing` · `needs memory across firings`) — and only three shapes come out:
+
+| axes | shape |
+| --- | --- |
+| time + stateless | this skill alone: one task whose prompt does the work and keeps nothing |
+| time + memory | the task owns the clock and **hands over** to a pod (`spawn_pod`): its prompt appends one Inbox Item to the pod's inbox (a Listener bound to that pod wakes it), or calls `agents-pod wake <podId>` when the pod accumulates nothing. The work lives in the pod, never in the task's prompt |
+| message / role alive | not a task: that is `spawn_pod` in agents-pod, intake-bound |
+
+A handover is preferred as an Inbox Item whenever the pod keeps memory across
+firings — the batch is ordered and the pod owes exactly one wake-up per batch.
+State the split in one line, naming both units and the pod's admission
+(`intake` or `external`), before the first tool call. Never write the role into
+the task prompt (a task ends; a role does not), and never put a time rule inside
+the pod's goal — agents-pod refuses that shape, and a pod re-armed by a clock is
+the wake storm this split exists to prevent (agents-pod ADR 0030, ADR 0033).
+
 ## Agents
 
 Tasks run through an agent adapter: `pi` (default), `claude` (Claude Code,
