@@ -11,7 +11,7 @@ import { LEGACY_TASK_SESSION_ENV, TASK_SESSION_ENV } from "./env.ts";
  * executes: cron invokes `agents-cron run-due`, and this only reads/writes
  * the store. Inside a Task Session it stays completely inert.
  *
- * Set by whichever copy of this extension loads first in a process. The
+ * Set by whichever copy of this extension loads first in a runtime. The
  * pre-rename @fookhsu/pi-scheduler shim forwards this same extension, so
  * during migration both packages can be installed at once and pi would load
  * two copies that fight over the same tool and command names. `Symbol.for`
@@ -25,6 +25,20 @@ export default function (pi: ExtensionAPI): void {
   if (process.env[TASK_SESSION_ENV] ?? process.env[LEGACY_TASK_SESSION_ENV]) return;
 
   const scope = globalThis as Record<symbol, boolean>;
+
+  // `/reload`, `/new`, `/resume` and `/fork` replace the whole extension
+  // runtime: pi re-imports this module in the same process (jiti runs with
+  // `moduleCache: false`) and rebuilds every extension's command and tool
+  // registry from scratch. globalThis survives that re-import while the
+  // registrations do not, so a flag left set would make the replacement copy
+  // load inert and /schedule, /loop, /remind and schedule_task would vanish
+  // until the process restarts. Every runtime replacement is preceded by a
+  // `session_shutdown`, so clearing there keeps the flag meaning "claimed by
+  // this runtime" instead of "claimed by this process".
+  pi.on("session_shutdown", () => {
+    delete scope[LOADED_FLAG];
+  });
+
   if (scope[LOADED_FLAG]) return;
   scope[LOADED_FLAG] = true;
 

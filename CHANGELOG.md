@@ -7,6 +7,19 @@ new one as an in-terminal notice; `/schedule changelog` shows this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- `/reload`, `/new`, `/resume`, and `/fork` no longer take `/schedule`,
+  `/loop`, `/remind`, and `schedule_task` with them (issue #10). Every runtime
+  replacement re-imports the extension into a fresh command and tool registry
+  while the process keeps its `globalThis`, so the guard that keeps a second
+  installed copy inert (the `@fookhsu/pi-scheduler` shim) was still set and the
+  reloaded copy stayed silent — restarting Pi was the only way to get the
+  commands back. The guard is now released on `session_shutdown`, so it claims
+  a runtime instead of the process.
+
 ## [0.16.0] - 2026-11-02
 
 ### Added
