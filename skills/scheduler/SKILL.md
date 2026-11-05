@@ -106,16 +106,19 @@ firing` · `needs memory across firings`) — and only three shapes come out:
 | axes | shape |
 | --- | --- |
 | time + stateless | this skill alone: one task whose prompt does the work and keeps nothing |
-| time + memory | the task owns the clock and **hands over** to a pod (`spawn_pod`): its prompt appends one Inbox Item to the pod's inbox (a Listener bound to that pod wakes it), or calls `agents-pod wake <podId>` when the pod accumulates nothing. The work lives in the pod, never in the task's prompt |
-| message / role alive | not a task: that is `spawn_pod` in agents-pod, intake-bound |
+| time + memory | the task owns the clock and **hands over** to a pod (`spawn_pod`): its prompt appends one Inbox Item to the inbox the pod's Listener watches (bind it with `agents-pod listener add --inbox <file> --pod <podId>`; the pod's admission is `intake`), or calls `agents-pod wake <podId>` when no input batch has to be queued (`admission: external`). The work lives in the pod, never in the task's prompt |
+| message / role alive | not a task: that is `spawn_pod` in agents-pod — `intake` when a Listener or inbox feeds it, `self` only for a goal that reaches done |
 
-A handover is preferred as an Inbox Item whenever the pod keeps memory across
-firings — the batch is ordered and the pod owes exactly one wake-up per batch.
-State the split in one line, naming both units and the pod's admission
-(`intake` or `external`), before the first tool call. Never write the role into
-the task prompt (a task ends; a role does not), and never put a time rule inside
-the pod's goal — agents-pod refuses that shape, and a pod re-armed by a clock is
-the wake storm this split exists to prevent (agents-pod ADR 0030, ADR 0033).
+Hand over as an Inbox Item when a per-firing input has to be queued — the batch
+is ordered and the pod owes exactly one wake-up per batch; use `agents-pod wake`
+when nothing has to be queued (the pod still keeps its own memory across
+firings). State the split in one line, naming every unit the ask has and the
+pod's admission (`intake` or `external`), before the first tool call. Never
+write the role into the task prompt (a task ends; a role does not), and never
+put a time rule inside the pod's goal: agents-pod's spawn refuses a recognised
+clock phrase (09:00, 每天, 每 30 分钟, 9 点, every 30 minutes, daily) when the
+pod's admission is `self` or unstated, and a pod re-armed by a clock is the wake
+storm this split exists to prevent (agents-pod ADR 0030, ADR 0033).
 
 ## Agents
 
