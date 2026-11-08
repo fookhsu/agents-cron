@@ -7,6 +7,57 @@ new one as an in-terminal notice; `/schedule changelog` shows this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- One vocabulary for every surface. The CLI's formatters — the interval as
+  `30m`/`2h`/`1d` rather than raw milliseconds, the compact ISO timestamp,
+  the task line, the detailed task block, the run line — now live in
+  `src/format.ts`, and the `schedule_task` tool, the slash commands, their
+  completions, and the dashboard's schedule label all read from it. Before
+  this, `tools.ts` and `pi/format.ts` each had their own `formatTask` /
+  `formatRun` / `formatSchedule` and had already drifted: the same task
+  printed `next 2026-09-01T10:00:00.000Z` in one and a locale date in the
+  other, and `every 1800000ms` in the tool while the CLI said `every 30m`.
+  `schedule_task show` now returns the CLI's `show` block verbatim, and its
+  `list`/`runs` lines are the CLI's lines.
+- The dashboard's JSON is machine-readable: `/api/runs` carries `total`,
+  `returned`, `has_more`, and (when truncated) `next_limit`, so
+  `?limit=1` against a three-run task states the truncation instead of
+  implying it; `/api/overview` carries `total`, `enabled`, and `failures`
+  beside the task array; and every non-2xx answers
+  `{"error": {"code", "message"}}`. A corrupt registry now answers `503` with
+  `corrupt_registry` instead of an empty task list that reads as "nothing
+  scheduled".
+- `--notify-to` is the one name, on both surfaces: the CLI accepts `--to` as
+  its short spelling (previously CLI-only `--notify-to`, Pi-only `--to`), and
+  a command passing both exits `2` instead of silently picking one.
+  `/schedule export` accepts `--out <file>` as well as a bare positional, so
+  the destination is spelled the same way on both sides.
+- `registry_lock_busy` is now its own code (exit `3`, "nothing was saved"),
+  distinct from `lock_busy` (the project Run Lock, exit `0` by skipping). The
+  two "lock is busy" outcomes were the same word for two opposite meanings.
+
+### Fixed
+
+- `import` warns about an agent id no adapter answers to, exactly like `add`
+  and `set`, and `--dry-run` warns too — previewing is when you most want to
+  know the imported task would never run here (issue #14).
+- The unknown-agent warning no longer exempts the literal `"fake"`: the
+  exemption was a test double's name leaking into product code. The check now
+  judges against the agent registry actually in play, so a test injects its
+  own and the assertion is about behaviour, not a carve-out (issue #14).
+
+### Documented
+
+- README § "What the CLI promises a machine" states the decision behind
+  registry faults being local: no notification channel is global, and a
+  registry that cannot be read cannot name a project to route by, so a corrupt
+  registry or a busy Registry Lock reaches the user through the cron log, any
+  failing command, and the dashboard's coded `503` — never by push. The two
+  locks get their own paragraph (issue #13).
+
 ## [0.17.0] - 2026-11-08
 
 ### Changed
