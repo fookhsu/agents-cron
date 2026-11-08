@@ -75,11 +75,12 @@ function capture(projectDir: string, agent: FakeAgent): { deps: CliDeps; stdout:
   };
 }
 
-test("unknown commands exit with a config error", async () => {
+test("unknown commands are refused as bad input, one machine-readable line", async () => {
   const dir = await project();
-  const { deps, stderr } = capture(dir, new FakeAgent());
+  const { deps, stderr, stdout } = capture(dir, new FakeAgent());
   assert.equal(await main(["frobnicate"], deps), 2);
-  assert.match(stderr.join("\n"), /Unknown command/);
+  assert.deepEqual(stdout, []);
+  assert.match(stderr.join("\n"), /^error: unknown_command: unknown command "frobnicate"/);
 });
 
 test("lists an empty project without failing", async () => {
@@ -263,8 +264,9 @@ test("a corrupt store exits 2 instead of throwing", async () => {
   await writeFile(paths.tasksFile, "{ not json");
   const { deps, stderr } = capture(dir, new FakeAgent());
 
-  assert.equal(await main(["run-due"], deps), 2);
-  assert.match(stderr.join("\n"), /Invalid scheduler file/);
+  // A corrupt store is the machine's fault, not the caller's: exit 3.
+  assert.equal(await main(["run-due"], deps), 3);
+  assert.match(stderr.join("\n"), /error: corrupt_store: Invalid scheduler file/);
 });
 
 test("run executes a task immediately with a manual trigger", async () => {
@@ -394,8 +396,9 @@ test("interval schedules render in human units, not raw milliseconds", async () 
 test("setup-notify refuses to run without a terminal instead of half-working", async () => {
   const dir = await project();
   const { deps, stderr } = capture(dir, new FakeAgent());
-  assert.equal(await main(["setup-notify"], deps), 2);
-  assert.match(stderr.join("\n"), /interactive/);
+  // A missing terminal is the machine's problem, not the caller's: exit 3.
+  assert.equal(await main(["setup-notify"], deps), 3);
+  assert.match(stderr.join("\n"), /error: no_tty: .*interactive/);
 });
 
 test("migrate-sessions refuses while another instance holds the run lock", async () => {
@@ -404,8 +407,8 @@ test("migrate-sessions refuses while another instance holds the run lock", async
   const lock = await acquireLock(schedulerPaths(dir).lockFile);
   assert.ok(lock);
   try {
-    assert.equal(await main(["migrate-sessions", "--project", dir], deps), 2);
-    assert.match(stderr.join("\n"), /run lock/);
+    assert.equal(await main(["migrate-sessions", "--project", dir], deps), 3);
+    assert.match(stderr.join("\n"), /error: lock_busy: .*run lock/);
   } finally {
     await lock.release();
   }
@@ -613,4 +616,176 @@ test("dashboard status reports a dead registration as stale and removes it", asy
   assert.equal(await main(["dashboard", "status"], deps), 0);
   assert.match(stdout.join("\n"), /Not running \(removed stale state\)/);
   assert.equal(existsSync(file), false);
+});
+
+// --- the agent-facing output contract (AXI) ---
+// Each test below pins one promise the CLI makes to a machine reader: what a
+// bare invocation answers, that unknown input is refused instead of guessed
+// at, that truncation is stated, and that every success names its next step.
+
+test("bare invocation answers with the task list, not usage", async () => {
+  const dir = await project();
+  const { deps, stdout } = capture(dir, new FakeAgent());
+  await main(["add", "--prompt", "Check CI", "--every", "30m", "--name", "ci"], deps);
+
+  stdout.length = 0;
+  assert.equal(await main([], deps), 0);
+  const text = stdout.join("\n");
+  assert.match(text, /ci/);
+  assert.doesNotMatch(text, /^\s+list \[/); // usage text, not data
+});
+
+test("an unknown flag is refused instead of silently ignored", async () => {
+  const dir = await project();
+  const { deps, stdout, stderr } = capture(dir, new FakeAgent());
+  await main(["add", "--prompt", "Check CI", "--every", "30m"], deps);
+
+  stdout.length = 0;
+  assert.equal(await main(["list", "--bogus", "x"], deps), 2);
+  assert.deepEqual(stdout, []); // nothing on stdout on failure
+  assert.match(stderr.join("\n"), /^error: unknown_flag: no command accepts --bogus/);
+
+  stderr.length = 0;
+  assert.equal(await main(["list", "--limit", "2"], deps), 0);
+  assert.equal(await main(["list", "--json", "stray"], deps), 2); // extra positionals too
+  assert.match(stderr.join("\n"), /^error: usage: list: takes 0 positional/);
+});
+
+test("list states its total and says when --limit hid rows", async () => {
+  const dir = await project();
+  const { deps, stdout } = capture(dir, new FakeAgent());
+  for (const name of ["a", "b", "c"]) {
+    await main(["add", "--prompt", name, "--every", "30m", "--name", name], deps);
+  }
+
+  stdout.length = 0;
+  assert.equal(await main(["list", "--limit", "1"], deps), 0);
+  const text = stdout.join("\n");
+  assert.match(text, /tasks: 3 total/);
+  assert.match(text, /2 task\(s\) hidden by --limit 1/);
+  assert.match(text, /^next: agents-cron show /m);
+
+  stdout.length = 0;
+  assert.equal(await main(["list", "--limit", "0"], deps), 0);
+  assert.doesNotMatch(stdout.join("\n"), /hidden/);
+});
+
+test("empty states say what is empty and what to run instead", async () => {
+  const dir = await project();
+  const { deps, stdout } = capture(dir, new FakeAgent());
+
+  assert.equal(await main(["list"], deps), 0);
+  assert.match(stdout.join("\n"), /No scheduled tasks here or in any other project/);
+  assert.match(stdout.join("\n"), /next: agents-cron add/);
+
+  assert.equal(await main(["clear"], deps), 0);
+  assert.match(stdout.join("\n"), /nothing to clear/);
+
+  assert.equal(await main(["prune"], deps), 0);
+  assert.match(stdout.join("\n"), /Pruned 0 run\(s\)/);
+
+  assert.equal(await main(["run-due"], deps), 0);
+  assert.match(stdout.join("\n"), /No due tasks/);
+});
+
+test("mutations report the state they produced, not just an acknowledgement", async () => {
+  const dir = await project();
+  const { deps, stdout } = capture(dir, new FakeAgent());
+  assert.equal(await main(["add", "--prompt", "Check CI", "--every", "30m", "--name", "ci"], deps), 0);
+  const id = /Created (task_[^\s]+)/.exec(stdout.join("\n"))![1];
+  assert.match(stdout.join("\n"), new RegExp(`${id} \\[enabled\\] ci — every 30m`));
+
+  stdout.length = 0;
+  assert.equal(await main(["disable", id], deps), 0);
+  assert.match(stdout.join("\n"), new RegExp(`Disabled ${id}`));
+  assert.match(stdout.join("\n"), /\[disabled\]/); // the state after, not before
+  assert.match(stdout.join("\n"), new RegExp(`next: agents-cron enable ${id}`));
+
+  stdout.length = 0;
+  assert.equal(await main(["remove", id], deps), 0);
+  assert.match(stdout.join("\n"), /Removed task_.*; 0 task\(s\) left/);
+});
+
+test("runs prints a task's history, newest first, with its own truncation", async () => {
+  const dir = await project();
+  const { deps, stdout } = capture(dir, new FakeAgent());
+  await main(["add", "--prompt", "Check CI", "--every", "30m", "--name", "ci"], deps);
+  const [task] = JSON.parse((await captureJson(deps)).join("\n"));
+
+  for (let index = 0; index < 3; index += 1) {
+    await writeRun(schedulerPaths(dir).runsDir, {
+      runId: `run_20260901T10010${index}Z_runs${index}`,
+      taskId: task.id,
+      trigger: "manual",
+      startedAt: `2026-09-01T10:0${index}:00.000Z`,
+      finishedAt: `2026-09-01T10:0${index}:30.000Z`,
+      status: index === 1 ? "error" : "success",
+      ...(index === 1 ? { error: "provider unavailable" } : {}),
+    });
+  }
+
+  stdout.length = 0;
+  assert.equal(await main(["runs", task.id.slice(0, 9), "--limit", "2"], deps), 0);
+  const text = stdout.join("\n");
+  assert.match(text, /runs: 3 total — 2 success, 1 error/);
+  assert.match(text, /provider unavailable/); // the error is on the line, not hidden
+  assert.match(text, /1 older run\(s\) hidden/);
+  assert.match(text, /^next: agents-cron show /m);
+});
+
+test("a missing task is bad input: exit 2, stderr only, nothing on stdout", async () => {
+  const dir = await project();
+  const { deps, stdout, stderr } = capture(dir, new FakeAgent());
+  for (const command of [["show", "task_nope"], ["runs", "task_nope"], ["enable", "task_nope"], ["run", "task_nope"]]) {
+    stdout.length = 0;
+    stderr.length = 0;
+    assert.equal(await main(command, deps), 2);
+    assert.deepEqual(stdout, []);
+    assert.match(stderr.join("\n"), /^error: input: Task not found: task_nope/);
+  }
+});
+
+test("flags that contradict each other are refused, not resolved silently", async () => {
+  const dir = await project();
+  const { deps, stderr } = capture(dir, new FakeAgent());
+  await main(["add", "--prompt", "Check CI", "--every", "30m"], deps);
+
+  assert.equal(await main(["list", "--full", "--limit", "5"], deps), 2);
+  assert.match(stderr.join("\n"), /^error: usage: --full shows everything/);
+
+  stderr.length = 0;
+  assert.equal(await main(["add", "--prompt", "x", "--every", "1h", "--timezone", "UTC"], deps), 2);
+  assert.match(stderr.join("\n"), /^error: usage: --timezone only applies to --cron/);
+
+  assert.equal(await main(["list", "--full", "--limit", "0"], deps), 0); // no contradiction
+});
+
+test("--json round-trips a mutation", async () => {
+  const dir = await project();
+  const { deps, stdout } = capture(dir, new FakeAgent());
+  assert.equal(await main(["add", "--prompt", "Check CI", "--every", "30m", "--name", "ci", "--json"], deps), 0);
+  const created = JSON.parse(stdout.join("\n"));
+  assert.equal(created.created.name, "ci");
+  assert.equal(created.created.enabled, true);
+
+  stdout.length = 0;
+  assert.equal(await main(["disable", created.created.id, "--json"], deps), 0);
+  assert.equal(JSON.parse(stdout.join("\n")).updated.enabled, false);
+});
+
+test("--json never truncates, so a cap alongside it is refused", async () => {
+  const dir = await project();
+  const { deps, stderr } = capture(dir, new FakeAgent());
+  await main(["add", "--prompt", "Check CI", "--every", "30m"], deps);
+
+  assert.equal(await main(["list", "--json", "--limit", "1"], deps), 2);
+  assert.match(stderr.join("\n"), /^error: usage: list --json returns every record/);
+  assert.equal(await main(["list", "--json"], deps), 0);
+});
+
+test("--json is refused where no JSON shape exists, instead of being ignored", async () => {
+  const dir = await project();
+  const { deps, stderr } = capture(dir, new FakeAgent());
+  assert.equal(await main(["migrate-sessions", "--json"], deps), 2);
+  assert.match(stderr.join("\n"), /^error: unknown_flag: migrate-sessions: unknown flag --json/);
 });
