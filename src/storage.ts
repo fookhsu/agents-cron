@@ -2,6 +2,7 @@ import { readFile, rename } from "node:fs/promises";
 import { writeJsonAtomic } from "./fs-utils.ts";
 import type { ScheduleDefinition } from "./scheduling.ts";
 import type { LegacyTask } from "./types.ts";
+import { EnvironmentError } from "./errors.ts";
 
 const STORAGE_VERSION = 1;
 
@@ -40,11 +41,11 @@ export async function loadTasks(filePath: string): Promise<LegacyTask[]> {
     parsed = JSON.parse(raw) as StorageFile;
   } catch (error) {
     await backupCorruptFile(filePath);
-    throw new Error(`Invalid scheduler file ${filePath}: ${(error as Error).message}`);
+    throw new EnvironmentError("corrupt_store", `Invalid scheduler file ${filePath}: ${(error as Error).message}`);
   }
 
   if (parsed.version !== STORAGE_VERSION || !Array.isArray(parsed.tasks)) {
-    throw new Error(`Unsupported scheduler file format in ${filePath}`);
+    throw new EnvironmentError("unsupported_store", `Unsupported scheduler file format in ${filePath}`);
   }
 
   return parsed.tasks.filter(isLegacyTask);

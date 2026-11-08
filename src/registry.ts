@@ -4,6 +4,7 @@ import { acquireLock } from "./lock.ts";
 import { registryPaths, type RegistryPaths } from "./paths.ts";
 import type { ScheduleDefinition } from "./scheduling.ts";
 import type { RunStatus, ScheduleTask } from "./types.ts";
+import { EnvironmentError } from "./errors.ts";
 
 /**
  * The Task Registry (ADR 0007): one machine-wide, version-2 store at
@@ -33,17 +34,17 @@ export async function loadRegistry(paths: RegistryPaths = registryPaths()): Prom
     parsed = JSON.parse(raw) as RegistryFile;
   } catch (error) {
     await backupCorruptFile(paths.tasksFile);
-    throw new Error(`Invalid task registry ${paths.tasksFile}: ${(error as Error).message}`);
+    throw new EnvironmentError("corrupt_registry", `Invalid task registry ${paths.tasksFile}: ${(error as Error).message}`);
   }
 
   if (parsed.version !== REGISTRY_VERSION || !Array.isArray(parsed.tasks)) {
-    throw new Error(`Unsupported task registry format in ${paths.tasksFile}`);
+    throw new EnvironmentError("unsupported_registry", `Unsupported task registry format in ${paths.tasksFile}`);
   }
 
   const tasks = parsed.tasks as unknown[];
   for (const entry of tasks) {
     if (!isRegistryTask(entry)) {
-      throw new Error(`Malformed task in registry ${paths.tasksFile}: ${JSON.stringify(entry)}`);
+      throw new EnvironmentError("malformed_registry", `Malformed task in registry ${paths.tasksFile}: ${JSON.stringify(entry)}`);
     }
   }
   return tasks as ScheduleTask[];
@@ -86,7 +87,7 @@ export async function updateRegistry(
         await lock.release();
       }
     }
-    if (Date.now() >= deadline) throw new Error(`Task registry lock busy: ${paths.lockFile}`);
+    if (Date.now() >= deadline) throw new EnvironmentError("lock_busy", `Task registry lock busy: ${paths.lockFile}; another agents-cron is writing`);
     await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_DELAY_MS));
   }
 }
