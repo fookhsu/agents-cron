@@ -166,21 +166,24 @@ minimal-`PATH` rule applies, with `AGENTS_CRON_CLAUDE_BIN`.
 ## CLI
 
 ```text
-agents-cron run-due [--project <path>|--all] [--agent <id>]   # cron entry point
-agents-cron run <taskId> [--project <path>] [--agent <id>]
-agents-cron list [--json]                              # current project first, then others
-agents-cron show <taskId> [--json]                     # one task in full, prompt included
+agents-cron                                   # bare = list: what is scheduled here
+agents-cron list [--limit <n>] [--full] [--json]     # current project first, then others
+agents-cron show <taskId> [--json]                   # one task in full, prompt included
+agents-cron runs <taskId> [--limit <n>] [--json]     # its run history, newest first
 agents-cron add --prompt <text> (--at <iso>|--every <duration>|--cron <expr>) [--agent <id>] [options]
 agents-cron set <taskId> [options]                   # reconfigure: --model --thinking --agent --cwd --tools --name --notify
 agents-cron enable <taskId> | disable <taskId> | remove <taskId>
 agents-cron clear                                      # remove every task bound to the current project
 agents-cron export [--out <file>] [--all] [taskId...]  # task definitions as JSON
 agents-cron import <file> [--dry-run]                  # new tasks bind here, start disabled
+agents-cron run-due [--project <path>|--all] [--agent <id>]   # cron entry point
+agents-cron run <taskId> [--project <path>] [--agent <id>]
 agents-cron prune [--keep <n>]                         # all projects unless --project; default keep 20
+agents-cron migrate-sessions [--dry-run] [--project <path>]   # legacy transcripts into Pi's store
 agents-cron dashboard [--port <n>]                     # foreground, global view grouped by project
 agents-cron dashboard start|stop|status [--port <n>]   # detached lifecycle
-agents-cron migrate-sessions [--dry-run] [--project <path>]   # legacy transcripts into Pi's store
 agents-cron test-notify [--channel <id>]
+agents-cron setup-notify                               # interactive channel wizard (needs a TTY)
 ```
 
 `--agent` selects the agent adapter (see [Agents](#agents)); it sets the task's
@@ -197,8 +200,35 @@ the run's working directory). `list` prints one ordered list — the current
 project's tasks first, then every other project grouped under a header, with
 `⚠ missing directory` on tasks whose project has moved or vanished.
 
-Exit codes: `0` success (including "no due tasks" and "another instance holds
-the lock"), `1` at least one task failed, `2` configuration or storage error.
+### What the CLI promises a machine
+
+The CLI is driven from scripts and agents as often as from a shell, so its
+output is a contract rather than a comfort:
+
+- **Bare `agents-cron` answers with data** — the task list, not usage. Usage
+  is on `--help`, and every command accepts `--help`.
+- **A mutation prints the state it produced**, not just `ok`, then one
+  `next: agents-cron …` line naming a command that is valid from there.
+- **Truncation is stated.** `list` and `runs` default to 20 and 10 rows; the
+  summary line always carries the true total, and hidden rows are announced
+  with the way to see them (`--limit 0`, or `--full`).
+- **Empty is a state, not an error.** "No scheduled tasks", "Pruned 0 run(s)",
+  "No due tasks" all exit `0` and say what to run instead.
+- **Unknown input is refused, never guessed.** An unknown flag, a stray
+  positional, or a bad value exits `2` with a message naming what the command
+  accepts — no `did you mean`, no silent ignore, no prompt.
+- **`--json` is the same command, machine-shaped**: mutations return the
+  created/updated/removed object, `list`/`show`/`runs` return the records. It
+  always returns *every* record in full, so pairing it with `--limit`/`--full`
+  is refused rather than silently ignored.
+- **Errors are one line on stderr** — `error: <code>: <message>` — never on
+  stdout, with a code you can branch on (`usage`, `unknown_flag`,
+  `unknown_command`, `bad_value`, `input`, `lock_busy`, `no_tty`, …).
+
+Exit codes: `0` success (including empty results and "another instance holds
+the lock"), `1` a run or notification failed, `2` bad input (flags,
+arguments, unknown task id, invalid schedule), `3` the environment is at
+fault (unreadable store, busy run lock, no terminal for the wizard).
 
 ### Export and import
 

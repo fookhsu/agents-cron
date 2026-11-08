@@ -41,20 +41,29 @@ In any other harness, shell out to the CLI, which reads and writes the same
 store with the same rules:
 
 ```bash
+agents-cron list [--limit <n>] [--json]  # bare `agents-cron` does the same: this project first, then others
+agents-cron show <taskId> [--json]       # one task in full, prompt included
+agents-cron runs <taskId> [--limit <n>]  # its run history, newest first — why it failed
 agents-cron add --prompt "<text>" (--at <iso> | --every <duration> | --cron "<expr>") [options]
-agents-cron list [--json]        # current project's tasks first, then all others
-agents-cron show <taskId> [--json]  # one task in full, prompt included
-agents-cron set <taskId> [options]  # reconfigure: --model --thinking --agent --cwd --tools --name --notify
+agents-cron set <taskId> [options]       # reconfigure: --model --thinking --agent --cwd --tools --name --notify
 agents-cron enable <taskId> | disable <taskId> | remove <taskId>
-agents-cron clear                    # remove every task bound to the current project
+agents-cron clear                         # remove every task bound to the current project
 agents-cron export [--out <file>] [--all] [taskId...]   # definitions as JSON; import starts disabled
 agents-cron import <file> [--dry-run]
-agents-cron prune [--keep <n>]       # all projects unless --project; default keep 20
-agents-cron run <taskId>
+agents-cron run <taskId>                  # run it now, without disturbing the schedule
+agents-cron run-due [--all]                # what cron calls; executes whatever is due
+agents-cron prune [--keep <n>]            # all projects unless --project; default keep 20
 agents-cron dashboard [--port <n>]
 agents-cron dashboard start|stop|status   # detached: survives Pi, stop reclaims it
 agents-cron test-notify [--channel <id>]
 ```
+
+The CLI answers machine-readably: bare invocation prints the task list, each
+mutation ends with a `next: agents-cron …` line, truncation is stated with the
+true total, empty results exit `0` with a plain sentence, and anything
+unparseable is refused — `error: <code>: <message>` on stderr, exit `2` for
+bad input, `3` for a broken environment, `1` for a failed run. Read `--json`
+when you need the record rather than the line.
 
 IDs resolve across the whole registry, so these commands manage any task from
 any directory. One global crontab line (`agents-cron run-due --all`) drives
