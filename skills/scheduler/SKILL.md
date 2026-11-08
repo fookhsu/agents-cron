@@ -65,6 +65,17 @@ unparseable is refused — `error: <code>: <message>` on stderr, exit `2` for
 bad input, `3` for a broken environment, `1` for a failed run. Read `--json`
 when you need the record rather than the line.
 
+Every surface — this CLI, the `schedule_task` tool, the `/schedule` commands,
+and the dashboard — prints a task and a run through one shared formatter, so
+the same task reads identically wherever you look: an interval is `every 30m`
+(never `every 1800000ms`), a timestamp is compact ISO (`2026-09-01T10:00:00Z`,
+or `never`), and a task line ends with its latest outcome (`never run`, or
+`last error at …`). Do not reformat those fields in your own prose; quote the
+line. Two locks are two words: `lock_busy` is another instance executing in
+this directory (normal; `run-due` skips and exits `0`), and
+`registry_lock_busy` is a refused write to the machine-wide registry (exit
+`3`, nothing saved).
+
 IDs resolve across the whole registry, so these commands manage any task from
 any directory. One global crontab line (`agents-cron run-due --all`) drives
 every project; a per-project line still runs only that project.

@@ -87,7 +87,15 @@ export async function updateRegistry(
         await lock.release();
       }
     }
-    if (Date.now() >= deadline) throw new EnvironmentError("lock_busy", `Task registry lock busy: ${paths.lockFile}; another agents-cron is writing`);
+    if (Date.now() >= deadline) {
+      // Distinct from the project run lock (`lock_busy`), which is normal and
+      // exits 0 by skipping: this one means a write did not happen, and every
+      // project's registry access is behind it.
+      throw new EnvironmentError(
+        "registry_lock_busy",
+        `task registry lock busy for ${LOCK_RETRY_BUDGET_MS / 1000}s: ${paths.lockFile}; another agents-cron is writing, so nothing was saved`,
+      );
+    }
     await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_DELAY_MS));
   }
 }

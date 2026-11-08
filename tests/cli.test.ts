@@ -845,3 +845,35 @@ test("import warns about a foreign agent id, dry run included", async () => {
     process.stderr.write = original;
   }
 });
+
+test("the registry lock and the run lock are different codes for different situations", async () => {
+  const dir = await project();
+  const { deps, stderr } = capture(dir, new FakeAgent());
+  await main(["add", "--prompt", "Check CI", "--every", "30m"], deps);
+
+  // A busy project Run Lock is normal: another instance is executing, so
+  // run-due reports it and exits 0 — never as a broken environment.
+  const runLock = await acquireLock(schedulerPaths(dir).lockFile);
+  assert.ok(runLock);
+  try {
+    assert.equal(await main(["run-due"], deps), 0);
+    assert.equal(await main(["run", "task_whatever"], deps), 2); // unknown id, before the lock matters
+  } finally {
+    await runLock.release();
+  }
+  assert.doesNotMatch(stderr.join("\n"), /registry_lock_busy/);
+
+  // A busy Registry Lock means a write did not land; it is the environment's
+  // fault (exit 3) and carries its own code so a script can tell the two apart.
+  const { registryPaths } = await import("../src/paths.ts");
+  const registryLock = await acquireLock(registryPaths().lockFile);
+  assert.ok(registryLock);
+  try {
+    const outcome = await main(["add", "--prompt", "second", "--every", "30m"], deps);
+    assert.equal(outcome, 3);
+    assert.match(stderr.join("\n"), /^error: registry_lock_busy: task registry lock busy/m);
+    assert.match(stderr.join("\n"), /nothing was saved/);
+  } finally {
+    await registryLock.release();
+  }
+});
