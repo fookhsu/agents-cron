@@ -789,3 +789,59 @@ test("--json is refused where no JSON shape exists, instead of being ignored", a
   assert.equal(await main(["migrate-sessions", "--json"], deps), 2);
   assert.match(stderr.join("\n"), /^error: unknown_flag: migrate-sessions: unknown flag --json/);
 });
+
+// --- the unknown-agent warning: one judgement, three entry points (#14) ---
+
+test("the unknown-agent warning comes from the registry in play, with no test-double carve-out", async () => {
+  const dir = await project();
+  const agent = new FakeAgent();
+  const { deps } = capture(dir, agent);
+  const chunks: string[] = [];
+  const original = process.stderr.write;
+  process.stderr.write = ((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    // The injected registry knows exactly one adapter, "fake": creating a task
+    // for it is a known agent, and nothing in product code names it.
+    assert.equal(await main(["add", "--prompt", "Check CI", "--every", "30m", "--agent", "fake"], deps), 0);
+    assert.equal(chunks.join(""), "");
+    assert.deepEqual(agent.requested, []); // add never resolves an adapter
+
+    // An id the injected registry does not know warns, and says what it knows.
+    chunks.length = 0;
+    assert.equal(await main(["add", "--prompt", "Check CI", "--every", "30m", "--agent", "nope"], deps), 0);
+    assert.match(chunks.join(""), /no agent adapter named "nope" is registered \(known: fake\)/);
+  } finally {
+    process.stderr.write = original;
+  }
+});
+
+test("import warns about a foreign agent id, dry run included", async () => {
+  const source = await project();
+  const { deps: sourceDeps } = capture(source, new FakeAgent());
+  await main(["add", "--prompt", "audit", "--every", "1d", "--agent", "codex", "--name", "audit"], sourceDeps);
+  const file = join(source, "export.json");
+  assert.equal(await main(["export", "--out", file], sourceDeps), 0);
+
+  const target = await project();
+  const { deps } = capture(target, new FakeAgent());
+  const chunks: string[] = [];
+  const original = process.stderr.write;
+  process.stderr.write = ((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    // Previewing is exactly when "this would never run here" has to be said.
+    assert.equal(await main(["import", file, "--dry-run"], deps), 0);
+    assert.match(chunks.join(""), /no agent adapter named "codex" is registered \(known: fake\)/);
+
+    chunks.length = 0;
+    assert.equal(await main(["import", file], deps), 0);
+    assert.match(chunks.join(""), /no agent adapter named "codex" is registered/);
+  } finally {
+    process.stderr.write = original;
+  }
+});

@@ -20,7 +20,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import "./agents/builtin.ts";
-import { UnknownAgentError } from "./agents/registry.ts";
+import { UnknownAgentError, listAgents, unknownAgentWarnings } from "./agents/registry.ts";
 import { PI_STORE_ENV } from "./agents/pi/adapter.ts";
 import { migratePiSessions } from "./agents/pi/migrate.ts";
 import type { AgentRegistry } from "./agents/registry.ts";
@@ -177,12 +177,12 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
       case "runs":
         return await commandRuns(project, flags, positional[0], out);
       case "add":
-        return await commandAdd(project, flags, out);
+        return await commandAdd(project, flags, deps, out);
       case "enable":
       case "disable":
         return await commandToggle(project, flags, positional[0], command === "enable", out);
       case "set":
-        return await commandSet(project, flags, positional[0], out);
+        return await commandSet(project, flags, positional[0], deps, out);
       case "remove":
         return await commandRemove(project, flags, positional[0], out);
       case "clear":
@@ -190,7 +190,7 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
       case "export":
         return await commandExport(project, flags, positional, out);
       case "import":
-        return await commandImport(project, flags, positional[0], out, err);
+        return await commandImport(project, flags, positional[0], deps, out, err);
       case "prune":
         return await commandPrune(project, explicitProject, flags, out);
       case "dashboard":
@@ -386,7 +386,7 @@ async function commandRuns(project: string, flags: Flags, id: string, out: Out):
   return 0;
 }
 
-async function commandAdd(project: string, flags: Flags, out: Out): Promise<number> {
+async function commandAdd(project: string, flags: Flags, deps: CliDeps, out: Out): Promise<number> {
   const prompt = requireFlag(flags, "prompt", "add requires --prompt <text>");
   const notifyTo = notifyToFlag(flags, "add");
   const task = await addTask(project, {
@@ -404,7 +404,7 @@ async function commandAdd(project: string, flags: Flags, out: Out): Promise<numb
     ...(notifyFlag(flags) ? { notify: notifyFlag(flags) } : {}),
     ...(notifyTo ? { notifyTo } : {}),
   });
-  await warnUnknownAgent(task.agent);
+  await warnUnknownAgents([task.agent], deps);
   emit(out, flags, { created: task }, [
     `Created ${task.id}`,
     formatTaskLine(task),
@@ -458,9 +458,9 @@ function patchFromFlags(flags: Flags): TaskPatch {
 }
 
 /** Reconfigures one task and reports what it now pins. */
-async function commandSet(project: string, flags: Flags, id: string, out: Out): Promise<number> {
+async function commandSet(project: string, flags: Flags, id: string, deps: CliDeps, out: Out): Promise<number> {
   const task = await updateTask(project, id, patchFromFlags(flags));
-  await warnUnknownAgent(task.agent);
+  await warnUnknownAgents([task.agent], deps);
   const overrides = describeOverrides(task);
   emit(out, flags, { updated: task }, [
     `Updated ${task.id}${overrides.length ? ` — ${overrides.join("; ")}` : " — no overrides; runs use the project and user defaults"}`,
@@ -530,6 +530,7 @@ async function commandImport(
   project: string,
   flags: Flags,
   file: string,
+  deps: CliDeps,
   out: Out,
   err: Out,
 ): Promise<number> {
@@ -558,6 +559,11 @@ async function commandImport(
 
   emit(out, flags, { dryRun, created: report.created, skipped: report.skipped }, lines);
   for (const warning of report.warnings) err(`Warning: ${warning}`);
+  // An export carries agent ids from the machine that wrote it; importing on a
+  // machine without that adapter is legal and lands disabled, but the user
+  // should hear it now — a dry run most of all, since previewing is exactly
+  // when you want to know the import would never run.
+  await warnUnknownAgents(parsed.tasks.map((entry) => entry.agent), deps);
   return 0;
 }
 
@@ -893,13 +899,18 @@ function scheduleFromFlags(flags: Flags): ScheduleInput {
   return { kind: "cron", expression: cron!, timezone: stringFlag(flags, "timezone") };
 }
 
-/** Names an agent id that would fail at 3 a.m. instead of now. */
-async function warnUnknownAgent(agent: string | undefined): Promise<void> {
-  if (!agent) return;
-  const { listAgents } = await import("./agents/registry.ts");
-  const known = listAgents().map((info) => info.id);
-  if (known.length > 0 && !known.includes(agent) && agent !== "fake") {
-    process.stderr.write(`Warning: no agent adapter named "${agent}" is registered (known: ${known.join(", ")}); runs will fail until one is.\n`);
+/**
+ * Names agent ids that would fail at 3 a.m. instead of now — the one warning
+ * every creator shares (`add`, `set`, and `import`). Judged against the agent
+ * registry actually in play, so neither a test double's name nor a test's
+ * injected registry has to be special-cased in product code.
+ */
+async function warnUnknownAgents(agents: Array<string | undefined>, deps: CliDeps): Promise<void> {
+  const registered = (deps.agents ?? { list: listAgents }).list();
+  for (const agent of new Set(agents)) {
+    for (const warning of unknownAgentWarnings(registered, agent)) {
+      process.stderr.write(`Warning: ${warning}\n`);
+    }
   }
 }
 
