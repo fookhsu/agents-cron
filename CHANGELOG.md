@@ -7,7 +7,7 @@ new one as an in-terminal notice; `/schedule changelog` shows this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.18.0] - 2026-11-08
 
 ### Changed
 
@@ -324,7 +324,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Run notifications via webhook and email
 - The extension stays inert when two copies load in one process
 
-[Unreleased]: https://github.com/fookhsu/agents-cron/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/fookhsu/agents-cron/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/fookhsu/agents-cron/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/fookhsu/agents-cron/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/fookhsu/agents-cron/compare/v0.16.1...v0.16.2
 [0.11.0]: https://github.com/fookhsu/agents-cron/compare/v0.10.2...v0.11.0
