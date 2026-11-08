@@ -7,6 +7,26 @@ new one as an in-terminal notice; `/schedule changelog` shows this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The scheduler skill states what is *not* a task (issue #9): a standing,
+  message-driven role — serve this inbox, judge what arrives, keep watching
+  until I say stop — has no time rule that could express it, so it belongs to
+  `spawn_pod` in agents-pod, woken by its admission owner and never by the
+  clock. A task is used only when the trigger is a time. The rule sits with the
+  definition of a task, because the skill body outweighs the one-line guidance
+  agents-pod contributes to `spawn_pod`, and a missing owner on this side is
+  what let a standing ask become a task that read the clock. A hybrid ask is
+  decomposed on the same two axes (trigger × work) and hands its work over: the
+  task owns the clock, the pod owns the work, and the handover takes an Inbox
+  Item or an `agents-pod wake`, never a clock inside the pod's goal.
+- A gate in `tests/packaging.test.ts` keeps that paragraph in place — the
+  not-a-task rule must follow the task definition, name `spawn_pod` and the
+  wake its owner gives it, and ship in the packed tarball. Assertions are
+  structural, so the prose stays free to be rewritten.
+
 ## [0.16.1] - 2026-11-04
 
 ### Fixed
