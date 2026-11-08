@@ -83,6 +83,10 @@ test("the dashboard serves tasks with their latest run, newest first", async () 
     assert.equal(task.latestRun.runId, project.runs[0].runId);
     assert.equal(task.latestRun.status, "success");
     assert.ok(overview.generatedAt);
+    // Aggregates ride along so a caller need not walk the array to count.
+    assert.equal(overview.total, 1);
+    assert.equal(overview.enabled, 1);
+    assert.equal(overview.failures, 0);
   } finally {
     await handle.close();
     await rm(project.dir, { recursive: true, force: true });
@@ -118,14 +122,32 @@ test("run history filters by task and honors the limit", async () => {
       project.runs[1].runId,
     ]);
 
+    // Truncation is stated, not implied: a caller can tell a short list from a
+    // cut one without guessing from the array length.
     const limited = await (await fetch(`${url}&limit=1`)).json();
     assert.equal(limited.runs.length, 1);
+    assert.equal(limited.returned, 1);
+    assert.equal(limited.total, 2);
+    assert.equal(limited.has_more, true);
+    assert.equal(limited.next_limit, 2);
+
+    const complete = await (await fetch(`${url}&limit=10`)).json();
+    assert.equal(complete.has_more, false);
+    assert.equal(complete.returned, 2);
+    assert.equal(complete.total, 2);
+    assert.equal("next_limit" in complete, false);
 
     const missing = await fetch(`${handle.url}api/runs?taskId=task_none`);
-    assert.equal((await missing.json()).runs.length, 0);
+    const missingBody = await missing.json();
+    assert.equal(missing.status, 200);
+    assert.equal(missingBody.runs.length, 0);
+    assert.equal(missingBody.total, 0);
+    assert.equal(missingBody.has_more, false); // an empty history is not a truncated one
 
     const unfiltered = await fetch(`${handle.url}api/runs`);
     assert.equal(unfiltered.status, 400);
+    // A machine reads the code, not the prose.
+    assert.deepEqual((await unfiltered.json()).error.code, "missing_parameter");
   } finally {
     await handle.close();
     await rm(project.dir, { recursive: true, force: true });
@@ -189,8 +211,13 @@ test("writes are rejected and unknown routes are 404s", async () => {
   const project = await seedProject();
   const handle = await startDashboard({ projectDir: project.dir, port: 0 });
   try {
-    assert.equal((await fetch(`${handle.url}api/overview`, { method: "POST" })).status, 405);
-    assert.equal((await fetch(`${handle.url}api/nope`)).status, 404);
+    const post = await fetch(`${handle.url}api/overview`, { method: "POST" });
+    assert.equal(post.status, 405);
+    assert.equal((await post.json()).error.code, "method_not_allowed");
+
+    const unknown = await fetch(`${handle.url}api/nope`);
+    assert.equal(unknown.status, 404);
+    assert.equal((await unknown.json()).error.code, "not_found");
   } finally {
     await handle.close();
     await rm(project.dir, { recursive: true, force: true });
@@ -212,5 +239,35 @@ test("the dashboard serves every project's tasks with their own runs", async () 
   } finally {
     await handle.close();
     await rm(elsewhere, { recursive: true, force: true });
+  }
+});
+
+test("a corrupt registry answers with its code, not an empty task list", async () => {
+  // An empty task list would read as "nothing is scheduled"; the fault has to
+  // be visible to a machine without it parsing prose.
+  const home = await mkdtemp(join(tmpdir(), "agents-cron-dash-corrupt-"));
+  const previous = process.env.AGENTS_CRON_HOME;
+  process.env.AGENTS_CRON_HOME = home;
+  const { mkdir: makeDir } = await import("node:fs/promises");
+  try {
+    const registryDir = join(home, ".agents", "cron");
+    await makeDir(registryDir, { recursive: true });
+    await writeFile(join(registryDir, "tasks.json"), "{not json", "utf8");
+    const dir = await mkdtemp(join(tmpdir(), "agents-cron-dash-corrupt-proj-"));
+    const handle = await startDashboard({ projectDir: dir, port: 0 });
+    try {
+      const response = await fetch(`${handle.url}api/overview`);
+      assert.equal(response.status, 503);
+      const body = await response.json();
+      assert.equal(body.error.code, "corrupt_registry");
+      assert.match(body.error.message, /tasks\.json/);
+    } finally {
+      await handle.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  } finally {
+    if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
+    else delete process.env.AGENTS_CRON_HOME;
+    await rm(home, { recursive: true, force: true });
   }
 });

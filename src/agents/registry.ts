@@ -21,6 +21,22 @@ export function listAgents(): AgentInfo[] {
   return [...loaders].map(([id]) => ({ id, displayName: displayNames.get(id) ?? id }));
 }
 
+/**
+ * The warning lines behind an agent id that no registered adapter answers to.
+ * A task's `agent` is a cross-machine value — exporting on a machine without
+ * claude and importing on one that has it is a legal path — so this is a
+ * warning, never a rejection: a task may be created before its adapter is
+ * installed, and the alternative is a user who cannot schedule the work that
+ * made them install the package. `registered` is the registry actually in
+ * play, so a caller with an injected one judges against its own set.
+ */
+export function unknownAgentWarnings(registered: AgentInfo[], agent?: string): string[] {
+  if (!agent) return [];
+  const known = registered.map((info) => info.id);
+  if (known.length === 0 || known.includes(agent)) return [];
+  return [`no agent adapter named "${agent}" is registered (known: ${known.join(", ")}); runs will fail until one is.`];
+}
+
 export function defaultAgentId(): string | undefined {
   return loaders.keys().next().value;
 }

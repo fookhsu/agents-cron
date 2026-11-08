@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { AppError } from "../errors.ts";
 import { schedulerPaths } from "../paths.ts";
 import { loadRegistry } from "../registry.ts";
 import { findTask } from "../runner.ts";
@@ -24,6 +25,37 @@ export type DashboardHandle = {
 export type TaskOverview = ScheduleTask & { latestRun?: RunRecord };
 
 /**
+ * The dashboard answers machine-readably for the same reason the CLI does: an
+ * agent drives it with `curl`, and a truncated run list or an error string
+ * with no code forces it to read prose to find out what happened.
+ *
+ *   /api/overview  the global view plus its aggregates
+ *   /api/runs      one page of one task's history, with the total behind it
+ *   errors         `{error: {code, message}}` on any non-2xx
+ */
+export type OverviewResponse = {
+  generatedAt: string;
+  total: number;
+  enabled: number;
+  /** Tasks whose latest run, or latest recorded status, is an error. */
+  failures: number;
+  tasks: TaskOverview[];
+};
+
+export type RunsResponse = {
+  taskId: string;
+  /** Every run this task has, not just the page returned. */
+  total: number;
+  returned: number;
+  has_more: boolean;
+  /** The limit that would return everything, when truncated. */
+  next_limit?: number;
+  runs: RunRecord[];
+};
+
+export type ErrorResponse = { error: { code: string; message: string } };
+
+/**
  * A read-only, localhost-only dashboard over the project's scheduler store.
  * It starts on demand (`agents-cron dashboard`), serves JSON from the same
  * files the CLI reads, and never mutates anything — so it needs no run lock
@@ -38,7 +70,14 @@ export async function startDashboard(options: {
 
   const server = createServer((request, response) => {
     void route(request, response, options.projectDir).catch((error: unknown) => {
-      respond(response, 500, { error: error instanceof Error ? error.message : String(error) });
+      // The scheduler's own faults keep their machine-readable code: a corrupt
+      // registry answers `corrupt_registry`, not an empty task list that reads
+      // as "nothing scheduled".
+      if (error instanceof AppError) {
+        respondError(response, 503, error.code, error.message);
+        return;
+      }
+      respondError(response, 500, "internal", error instanceof Error ? error.message : String(error));
     });
   });
 
@@ -69,7 +108,7 @@ async function route(
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://localhost");
   if (request.method !== "GET") {
-    respond(response, 405, { error: "GET only" });
+    respondError(response, 405, "method_not_allowed", "GET only");
     return;
   }
 
@@ -79,16 +118,22 @@ async function route(
   }
 
   if (url.pathname === "/api/overview") {
-    // Global view: every registry task, latest run read from each task's own project.
+    // Global view: every registry task, latest run read from each task's own
+    // project. The aggregates let a caller answer "how is the machine doing"
+    // without walking the task array itself.
     const tasks = await listTasks(projectDir);
-    const overview: { generatedAt: string; tasks: TaskOverview[] } = {
+    const withRuns: TaskOverview[] = await Promise.all(
+      tasks.map(async (task) => {
+        const runs = await listRuns(schedulerPaths(task.projectDir).runsDir);
+        return { ...task, latestRun: runs.find((run) => run.taskId === task.id) };
+      }),
+    );
+    const overview: OverviewResponse = {
       generatedAt: new Date().toISOString(),
-      tasks: await Promise.all(
-        tasks.map(async (task) => {
-          const runs = await listRuns(schedulerPaths(task.projectDir).runsDir);
-          return { ...task, latestRun: runs.find((run) => run.taskId === task.id) };
-        }),
-      ),
+      total: withRuns.length,
+      enabled: withRuns.filter((task) => task.enabled).length,
+      failures: withRuns.filter((task) => (task.latestRun?.status ?? task.lastStatus) === "error").length,
+      tasks: withRuns,
     };
     respond(response, 200, overview);
     return;
@@ -97,13 +142,22 @@ async function route(
   if (url.pathname === "/api/runs") {
     const taskId = url.searchParams.get("taskId");
     if (!taskId) {
-      respond(response, 400, { error: "taskId query parameter is required" });
+      respondError(response, 400, "missing_parameter", "taskId query parameter is required");
       return;
     }
     const limit = clampLimit(url.searchParams.get("limit"));
     const runsDir = (await projectPathsFor(taskId))?.runsDir;
     const runs = runsDir ? await listRunsForTask(runsDir, taskId) : [];
-    respond(response, 200, { taskId, runs: runs.slice(0, limit) });
+    const page = runs.slice(0, limit);
+    const body: RunsResponse = {
+      taskId,
+      total: runs.length,
+      returned: page.length,
+      has_more: page.length < runs.length,
+      ...(page.length < runs.length ? { next_limit: runs.length } : {}),
+      runs: page,
+    };
+    respond(response, 200, body);
     return;
   }
 
@@ -111,7 +165,7 @@ async function route(
   if (sessionMatch) {
     const [, taskId, runId] = sessionMatch;
     if (!isSafeId(taskId) || !isSafeId(runId)) {
-      respond(response, 404, { error: "No such session record" });
+      respondError(response, 404, "not_found", "No such session record");
       return;
     }
     const projectPaths = await projectPathsFor(taskId);
@@ -148,11 +202,11 @@ async function route(
         return;
       }
     }
-    respond(response, 404, { error: "No such session record" });
+    respondError(response, 404, "not_found", "No such session record");
     return;
   }
 
-  respond(response, 404, { error: "Not found" });
+  respondError(response, 404, "not_found", "Not found");
 }
 
 function clampLimit(raw: string | null): number {
@@ -181,6 +235,11 @@ async function readCapped(file: string): Promise<{ content: string } | undefined
   if (buffer.byteLength <= MAX_SESSION_BYTES) return { content: buffer.toString("utf8") };
   const tail = buffer.subarray(Math.max(0, buffer.byteLength - MAX_SESSION_BYTES)).toString("utf8");
   return { content: `… (older bytes omitted; showing the last ${MAX_SESSION_BYTES} of ${buffer.byteLength})\n${tail}` };
+}
+
+/** The one error shape: a machine-readable code beside the sentence. */
+function respondError(response: ServerResponse, status: number, code: string, message: string): void {
+  respond(response, status, { error: { code, message } } satisfies ErrorResponse);
 }
 
 function respond(

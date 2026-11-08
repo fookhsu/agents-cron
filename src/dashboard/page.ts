@@ -122,10 +122,15 @@ const scheduleLabel = (s) => {
   if (!s) return "—";
   if (s.kind === "cron") return "cron " + s.expression;
   if (s.kind === "interval") {
-    const mins = s.everyMs / 6e4;
-    if (mins >= 1440 && mins % 1440 === 0) return "every " + (mins / 1440) + "d";
-    if (mins >= 60 && mins % 60 === 0) return "every " + (mins / 60) + "h";
-    return "every " + Math.round(mins) + "m";
+    // Same largest-whole-unit rule as the CLI's formatInterval: the dashboard
+    // may not say "every 90m" where the CLI says "every 90m" but "every 2h"
+    // where it says "every 120m". Seconds and sub-minute oddities fall through
+    // to the millisecond form rather than rounding into a wrong unit.
+    if (s.everyMs >= 864e5 && s.everyMs % 864e5 === 0) return "every " + (s.everyMs / 864e5) + "d";
+    if (s.everyMs >= 36e5 && s.everyMs % 36e5 === 0) return "every " + (s.everyMs / 36e5) + "h";
+    if (s.everyMs >= 6e4 && s.everyMs % 6e4 === 0) return "every " + (s.everyMs / 6e4) + "m";
+    if (s.everyMs >= 1e3 && s.everyMs % 1e3 === 0) return "every " + (s.everyMs / 1e3) + "s";
+    return "every " + s.everyMs + "ms";
   }
   return "once";
 };
@@ -134,6 +139,12 @@ async function refreshOverview() {
   let data;
   try { data = await (await fetch("api/overview")).json(); }
   catch { document.getElementById("stamp").textContent = "connection lost; retrying"; return; }
+  // A broken registry answers with a code, not an empty task list: an empty
+  // list would read as "nothing scheduled" and hide the fault.
+  if (data.error) {
+    document.getElementById("stamp").textContent = data.error.code + ": " + data.error.message;
+    return;
+  }
   document.getElementById("stamp").textContent = "updated " + new Date(data.generatedAt).toLocaleTimeString();
   state.tasks = data.tasks;
   renderTasks(data.tasks);
@@ -225,6 +236,7 @@ async function refreshRuns() {
   try { data = await (await fetch("api/runs?taskId=" + encodeURIComponent(state.selectedTask))).json(); }
   catch { list.textContent = ""; list.appendChild(el("li", "dim", "failed to load runs")); return; }
   list.textContent = "";
+  if (data.error) { list.appendChild(el("li", "dim", data.error.code + ": " + data.error.message)); return; }
   if (!data.runs.length) { list.appendChild(el("li", "dim", "no runs recorded yet")); return; }
   for (const run of data.runs) {
     const li = el("li", state.selectedRun === run.runId ? "selected" : null);
