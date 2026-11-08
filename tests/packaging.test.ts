@@ -52,6 +52,14 @@ test("the packed tarball runs under a bare node", { timeout: 180_000 }, () => {
     for (const shipped of ["bin/agents-cron.mjs", "bin/ts-loader.mjs", "index.mjs", "skills"])
       assert.ok(existsSync(join(pkg, shipped)), `files list is missing ${shipped}`);
 
+    // The skill is prose no loader test can execute, so assert the packed copy
+    // still carries the rule other surfaces rely on (issue #9).
+    assert.match(
+      readFileSync(join(pkg, "skills", "scheduler", "SKILL.md"), "utf8"),
+      /\*\*Not a task\.\*\*/,
+      "the packed skill must ship the not-a-task rule",
+    );
+
     const bin = join(pkg, "bin", "agents-cron.mjs");
     const run = spawnSync(
       process.execPath,
@@ -67,6 +75,28 @@ test("the packed tarball runs under a bare node", { timeout: 180_000 }, () => {
     rmSync(packDir, { recursive: true, force: true });
     rmSync(appDir, { recursive: true, force: true });
   }
+});
+
+/**
+ * Issue #9: the skill body outweighs the `spawn_pod` guideline snippet another
+ * extension contributes, so a standing, message-driven ask ("keep watching
+ * until I say stop") was read as a task and the clock got written into a pod.
+ * The skill has to rule that out right after it defines a task, and point at
+ * the tool that owns a standing role. Assertions stay structural — rephrasing
+ * is fine, losing the rule is not.
+ */
+test("gate: the skill rules out a standing role as a task, right after defining one", () => {
+  const skill = readFileSync(join(repoRoot, "skills", "scheduler", "SKILL.md"), "utf8");
+  // Everything before the first `## ` section: the framing an agent reads
+  // before it reaches the per-section detail.
+  const framing = skill.split(/\n## /)[0];
+  const definition = framing.indexOf("A schedule task is a stored prompt plus a time rule");
+  const notATask = framing.indexOf("**Not a task.**");
+  assert.notEqual(definition, -1, "the framing must keep its definition of a schedule task");
+  assert.ok(notATask > definition, "the not-a-task paragraph must follow that definition, not float elsewhere");
+  assert.match(framing, /`spawn_pod`/, "the not-a-task paragraph must name spawn_pod, the tool that owns a standing role");
+  assert.match(framing, /intake/, "the not-a-task paragraph must name who wakes it: intake, not a time rule");
+  assert.match(framing, /trigger is a time/i, "the not-a-task paragraph must state the rule: a task needs a time trigger");
 });
 
 test("gate: every pi.extensions entry is a root index.* file so the TUI label stays `agents-cron`", () => {

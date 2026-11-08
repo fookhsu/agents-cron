@@ -14,6 +14,15 @@ owned by an external scheduler that invokes `agents-cron run-due`, so Pi never
 runs tasks in the background by itself. Mention the cron entry when the user
 expects unattended runs.
 
+**Not a task.** A standing, message-driven role — serve this inbox, judge what
+arrives, keep watching until I say stop — has no time rule that could express
+it. That is a pod, and agents-pod owns it: `spawn_pod`, woken by its admission
+owner — `intake` when a Listener or inbox feeds it, `external` for an outside
+wake, `self` for a goal that reaches done — and never by the clock. Use a task
+only when the trigger is a time; when an ask carries both signals, the two axes
+below decide which unit owns which half (agents-pod ADR 0005, amended by ADR
+0033: the cron side owns when work starts, the pod side owns keeping it alive).
+
 ## Install
 
 The CLI is the npm package `agents-cron` and needs Node `>= 22.19`:
