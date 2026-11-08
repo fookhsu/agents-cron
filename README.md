@@ -223,12 +223,47 @@ output is a contract rather than a comfort:
   is refused rather than silently ignored.
 - **Errors are one line on stderr** — `error: <code>: <message>` — never on
   stdout, with a code you can branch on (`usage`, `unknown_flag`,
-  `unknown_command`, `bad_value`, `input`, `lock_busy`, `no_tty`, …).
+  `unknown_command`, `bad_value`, `input`, `lock_busy`, `registry_lock_busy`,
+  `no_tty`, …).
 
 Exit codes: `0` success (including empty results and "another instance holds
 the lock"), `1` a run or notification failed, `2` bad input (flags,
 arguments, unknown task id, invalid schedule), `3` the environment is at
 fault (unreadable store, busy run lock, no terminal for the wizard).
+
+**Two locks, two words.** `lock_busy` is the project Run Lock: another
+`run-due`/`run`/`migrate-sessions` is executing in this directory right now.
+That is normal, so `run-due` reports it and exits `0` — the next tick picks the
+work up. `registry_lock_busy` is the machine-wide Registry Lock: a read-modify-
+write on `~/.agents/cron/tasks.json` could not start within 5s, so a command's
+change did **not** land, and it exits `3`. The first means "someone else is
+doing it", the second means "your write was refused".
+
+**Registry failures are local, and that is a decision, not an omission.** A
+corrupt or unsupported registry (`corrupt_registry`, `unsupported_registry`,
+`malformed_registry`) is moved aside as `tasks.json.corrupt.<ts>` and every
+command then exits `3` until it is restored; a busy Registry Lock fails the one
+command that hit it the same way. Because the registry is machine-wide, that
+takes **every** project's `run-due` with it: cron retries each tick, each retry
+exits `3`, and nothing is announced through the notification channels.
+
+That is deliberate. Notifications are routed by **project** — a channel id
+resolves against the owning project's `.agents/cron/config.json` — and a
+registry that cannot be read cannot name a project, so there is no config to
+route by. Announcing on a guessed project's channels would either leak one
+project's runs into another's channels or invent a recipient. So registry
+faults stay where they can always be found:
+
+- the cron log, one line per tick: `error: corrupt_registry: Invalid task
+  registry …` (a bad registry is loud per tick, not silent per run);
+- `agents-cron list` from any directory, which exits `3` and names the file;
+- the dashboard's `/api/overview`, which serves `{"error": {"code":
+  "corrupt_registry", …}}` with a `5xx` instead of an empty task list.
+
+How fast you find out is therefore how often you look at the cron log or run a
+command — a broken registry is discovered the next time anyone asks, not by
+push. If you want it pushed, the honest fix is a watcher outside this package
+(cron already writes the exit code and the message every tick).
 
 ### Export and import
 
