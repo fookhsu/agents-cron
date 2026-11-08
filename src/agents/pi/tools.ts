@@ -1,12 +1,12 @@
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { formatRunLine, formatTaskDetail, formatTaskLine, stamp } from "../../format.ts";
 import { schedulerPaths } from "../../paths.ts";
 import { listRunsForTask } from "../../runs.ts";
 import { runTask } from "../../runner.ts";
 import type { ScheduleInput } from "../../scheduling.ts";
 import { addTask, clearTasks, describeOverrides, listTasks, removeTask, requireTask, setTaskEnabled, updateTask, type TaskPatch } from "../../task-service.ts";
-import type { RunRecord, ScheduleTask } from "../../types.ts";
 import { confirmMutation } from "./confirm.ts";
 
 const actionSchema = StringEnum([
@@ -110,12 +110,12 @@ export function registerTools(pi: ExtensionAPI): void {
           ...(params.notify ? { notify: params.notify } : {}),
           ...(params.notifyTo?.length ? { notifyTo: params.notifyTo } : {}),
         });
-        return result(`Created ${task.id}; next run ${task.nextRunAt ?? "never"}`, task);
+        return result(`Created ${task.id}; next run ${stamp(task.nextRunAt)}`, task);
       }
 
       if (params.action === "list") {
         const tasks = await listTasks(ctx.cwd);
-        return result(tasks.length ? tasks.map(formatTask).join("\n") : "No scheduled tasks.", { tasks });
+        return result(tasks.length ? tasks.map((task) => formatTaskLine(task)).join("\n") : "No scheduled tasks.", { tasks });
       }
 
       if (params.action === "update") {
@@ -141,21 +141,12 @@ export function registerTools(pi: ExtensionAPI): void {
 
       if (params.action === "show") {
         const task = requireTask(await listTasks(ctx.cwd), params.id!);
-        const meta = [
-          task.agent ? `agent: ${task.agent}` : undefined,
-          task.model ? `model: ${task.model}` : undefined,
-          task.thinking ? `thinking: ${task.thinking}` : undefined,
-          task.cwd ? `cwd: ${task.cwd}` : undefined,
-          task.tools?.length ? `tools: ${task.tools.join(", ")}` : undefined,
-          task.notify ? `notify: ${task.notify}` : undefined,
-          task.notifyTo?.length ? `notify to: ${task.notifyTo.join(", ")}` : undefined,
-        ].filter(Boolean);
-        return result([formatTask(task), ...meta, `prompt:\n${task.prompt}`].join("\n"), task);
+        return result(formatTaskDetail(task), task);
       }
 
       if (params.action === "runs") {
         const runs = await listRunsForTask(schedulerPaths(ctx.cwd).runsDir, params.id!);
-        return result(runs.length ? runs.map(formatRun).join("\n") : `No runs for ${params.id}.`, { runs });
+        return result(runs.length ? runs.map((run) => formatRunLine(run, { session: true })).join("\n") : `No runs for ${params.id}.`, { runs });
       }
       if (params.action === "enable") {
         return result(`Enabled ${params.id}`, await setTaskEnabled(ctx.cwd, params.id!, true));
@@ -206,18 +197,4 @@ function result(text: string, details: unknown = {}): {
   details: unknown;
 } {
   return { content: [{ type: "text", text }], details };
-}
-
-function formatTask(task: ScheduleTask): string {
-  return `${task.id} [${task.enabled ? "enabled" : "disabled"}] ${task.name ?? "-"} — ${formatSchedule(task)} — next ${task.nextRunAt ?? "never"}`;
-}
-
-function formatRun(run: RunRecord): string {
-  return `${run.runId} [${run.status}] ${run.trigger} — ${run.finishedAt ?? run.startedAt}`;
-}
-
-function formatSchedule(task: ScheduleTask): string {
-  if (task.schedule.kind === "interval") return `every ${task.schedule.everyMs}ms`;
-  if (task.schedule.kind === "cron") return `cron ${task.schedule.expression}`;
-  return `once ${task.schedule.runAt}`;
 }

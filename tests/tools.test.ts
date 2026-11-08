@@ -234,3 +234,47 @@ test("schedule_task update rejects an empty patch and a bad thinking level", asy
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+// The tool and the CLI print the same vocabulary: an interval is `30m`, not
+// `1800000ms`, and a next run is a compact ISO stamp. One formatter
+// (src/format.ts) is the only place either shape is decided, so an agent
+// switching between `agents-cron list` and schedule_task never re-learns it.
+test("schedule_task list speaks the CLI's dialect for the same task", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { formatTaskLine } = await import("../src/format.ts");
+  const home = await mkdtemp(join(tmpdir(), "agents-cron-toolfmt-"));
+  const previous = process.env.AGENTS_CRON_HOME;
+  process.env.AGENTS_CRON_HOME = home;
+  const cwd = await mkdtemp(join(tmpdir(), "agents-cron-toolfmt-cwd-"));
+  try {
+    const { saveRegistry } = await import("../src/registry.ts");
+    await saveRegistry([]);
+    const { addTask } = await import("../src/task-service.ts");
+    await addTask(cwd, { prompt: "Check the CI", schedule: { kind: "interval", every: "30m" }, name: "ci" });
+
+    const text = await captureTool()
+      .execute("call", { action: "list" }, undefined, undefined, { cwd } as never)
+      .then((outcome) =>
+        outcome.content
+          .filter((part): part is { type: "text"; text: string } => part.type === "text")
+          .map((part) => part.text)
+          .join(""),
+      );
+
+    assert.match(text, /\[enabled\] ci — every 30m — next /);
+    assert.doesNotMatch(text, /\d+ms/);
+    // Compact ISO: a .000 fraction is dropped, real precision is kept.
+    assert.match(text, /— next 20\d\d-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{3})?Z/);
+
+    const listed = (await import("../src/task-service.ts")).listTasks(cwd);
+    const [task] = await listed;
+    assert.equal(text, formatTaskLine(task));
+  } finally {
+    if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
+    else delete process.env.AGENTS_CRON_HOME;
+    await rm(home, { recursive: true, force: true });
+    await rm(cwd, { recursive: true, force: true });
+  }
+});

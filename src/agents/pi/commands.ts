@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { dashboardStatus, refusalMessage, startDetachedDashboard, stopDashboard } from "../../dashboard/lifecycle.ts";
+import { formatRunLine, formatTaskDetail, formatTaskLine, previewPrompt, stamp } from "../../format.ts";
 import { readRun, listRunsForTask } from "../../runs.ts";
 import { runTask } from "../../runner.ts";
 import { normalizeChannelIds } from "../../notify/config.ts";
@@ -17,8 +18,33 @@ import {
   scheduleArgumentCompletions,
   taskSpecArgumentCompletions,
 } from "./completions.ts";
-import { formatDate, formatRun, formatTask, previewPrompt } from "./format.ts";
 import { readOwnChangelog } from "./update-notice.ts";
+
+
+/** `/schedule export [file] [--out <file>] [--all]` — the CLI's spelling plus the bare positional. */
+export function parseExportArgs(tokens: string[]): { out?: string; all: boolean } {
+  let out: string | undefined;
+  let all = false;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token === "--all") {
+      all = true;
+      continue;
+    }
+    if (token === "--out") {
+      const value = tokens[index + 1];
+      if (!value || value.startsWith("--")) throw new Error("Usage: /schedule export [file] [--out <file>] [--all] — --out needs a file");
+      if (out) throw new Error("Usage: /schedule export takes one destination — a bare file or --out <file>, not both");
+      out = value;
+      index += 1;
+      continue;
+    }
+    if (token.startsWith("--")) throw new Error(`Unexpected "${token}". Usage: /schedule export [file] [--out <file>] [--all]`);
+    if (out) throw new Error("Usage: /schedule export takes one destination — a bare file or --out <file>, not both");
+    out = token;
+  }
+  return { ...(out ? { out } : {}), all };
+}
 
 /** The default file /schedule export writes: definitions only, review-friendly. */
 const DEFAULT_EXPORT_FILE = "agents-cron.tasks.json";
@@ -54,7 +80,7 @@ export function registerCommands(pi: ExtensionAPI): void {
           ...(flags.model ? { model: flags.model } : {}),
           ...(flags.thinking ? { thinking: flags.thinking } : {}),
         });
-        ctx.ui.notify(`Created ${task.id}; scheduled for ${formatDate(task.nextRunAt)}`, "info");
+        ctx.ui.notify(`Created ${task.id}; next run ${stamp(task.nextRunAt)}`, "info");
       });
     },
   });
@@ -74,7 +100,7 @@ export function registerCommands(pi: ExtensionAPI): void {
         }
         if (action === "list") {
           const tasks = await listTasks(ctx.cwd);
-          ctx.ui.notify(tasks.length ? tasks.map(formatTask).join("\n") : "No scheduled tasks.", "info");
+          ctx.ui.notify(tasks.length ? tasks.map((task) => formatTaskLine(task)).join("\n") : "No scheduled tasks.", "info");
           return;
         }
         if (action === "add") {
@@ -84,7 +110,7 @@ export function registerCommands(pi: ExtensionAPI): void {
         if (action === "runs") {
           const id = requireId(tokens[1], "runs");
           const runs = await listRunsForTask(paths.runsDir, id);
-          ctx.ui.notify(runs.length ? runs.map(formatRun).join("\n") : `No runs for ${id}.`, "info");
+          ctx.ui.notify(runs.length ? runs.map((run) => formatRunLine(run, { session: true })).join("\n") : `No runs for ${id}.`, "info");
           return;
         }
         if (action === "set") {
@@ -101,16 +127,7 @@ export function registerCommands(pi: ExtensionAPI): void {
         if (action === "show") {
           const id = requireId(tokens[1], "show");
           const task = requireTask(await listTasks(ctx.cwd), id);
-          const meta = [
-            task.agent ? `agent: ${task.agent}` : undefined,
-            task.model ? `model: ${task.model}` : undefined,
-            task.thinking ? `thinking: ${task.thinking}` : undefined,
-            task.cwd ? `cwd: ${task.cwd}` : undefined,
-            task.tools?.length ? `tools: ${task.tools.join(", ")}` : undefined,
-            task.notify ? `notify: ${task.notify}` : undefined,
-            task.notifyTo?.length ? `notify to: ${task.notifyTo.join(", ")}` : undefined,
-          ].filter(Boolean);
-          ctx.ui.notify([formatTask(task), ...meta, `prompt:\n${task.prompt}`].join("\n"), "info");
+          ctx.ui.notify(formatTaskDetail(task), "info");
           return;
         }
         if (action === "changelog") {
@@ -133,11 +150,12 @@ export function registerCommands(pi: ExtensionAPI): void {
         }
 
         if (action === "export") {
-          const rest = tokens.slice(1);
-          const all = rest.includes("--all");
-          const named = rest.filter((token) => token !== "--all")[0];
-          const target = named ? resolve(ctx.cwd, named) : join(ctx.cwd, DEFAULT_EXPORT_FILE);
-          const file = await exportTasks(ctx.cwd, all ? { all: true } : {});
+          // The CLI spells the destination `--out <file>`; the slash command
+          // takes it either way (a bare positional still works, as before), so
+          // "same field, same word" holds across both surfaces.
+          const flags = parseExportArgs(tokens.slice(1));
+          const target = flags.out ? resolve(ctx.cwd, flags.out) : join(ctx.cwd, DEFAULT_EXPORT_FILE);
+          const file = await exportTasks(ctx.cwd, flags.all ? { all: true } : {});
           await writeFile(target, `${JSON.stringify(file, null, 2)}\n`, "utf8");
           ctx.ui.notify(`Exported ${file.tasks.length} task(s) to ${target}`, "info");
           return;
@@ -244,7 +262,7 @@ async function addFromSpec(ctx: CommandContext, command: string, args: string): 
     ...(flags.model ? { model: flags.model } : {}),
     ...(flags.thinking ? { thinking: flags.thinking } : {}),
   });
-  ctx.ui.notify(`Created ${task.id}; next run ${formatDate(task.nextRunAt)}`, "info");
+  ctx.ui.notify(`Created ${task.id}; next run ${stamp(task.nextRunAt)}`, "info");
 }
 
 /**
@@ -353,8 +371,8 @@ const SCHEDULE_HELP = [
   "  --model <id>           model for this task's runs (provider/id, :level shorthand ok)",
   "  --thinking <level>     off, minimal, low, medium, high, xhigh, max",
   "  --agent <id>           pi, claude, or codex",
-  "  --to <id,id>           route this task's notifications to those channels",
-  "  --notify-to <id,id>    alias of --to (the CLI spelling)",
+  "  --notify-to <id,id>    route this task's notifications to those channels",
+  "  --to <id,id>           short spelling of --notify-to",
   "  --notify <level>       always, error (project default), or never",
   "Configure an existing task: /schedule set <id> --model <id> --thinking <level> ...",
   "  — same flags; a value of - clears a field back to the project and user defaults",

@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerCommands, parseTrailingFlags, parseSetSpec } from "../src/agents/pi/commands.ts";
+import { registerCommands, parseExportArgs, parseTrailingFlags, parseSetSpec } from "../src/agents/pi/commands.ts";
 
 type Registered = {
   description: string;
@@ -156,7 +156,10 @@ test("/schedule show prints the task's prompt", async () => {
 
     assert.equal(notices.length, 1);
     assert.equal(notices[0].level, "info");
-    assert.match(notices[0].message, new RegExp(`\\[enabled\\] - — every`));
+    // The detail block is the CLI's `show`, word for word: one formatter for
+    // every surface (see src/format.ts).
+    assert.match(notices[0].message, new RegExp(`^${task.id} \\[enabled\\] -$`, "m"));
+    assert.match(notices[0].message, /^schedule: every 30m$/m);
     assert.match(notices[0].message, /prompt:\nCheck the CI/);
   } finally {
     if (previous !== undefined) process.env.AGENTS_CRON_HOME = previous;
@@ -506,4 +509,19 @@ test("/schedule dashboard with an unknown action names the valid forms", async (
   assert.equal(notices[0].level, "error");
   assert.match(notices[0].message, /Unknown dashboard action "bogus"/);
   assert.match(notices[0].message, /\/schedule dashboard \[start\|stop\|status\]/);
+});
+
+test("/schedule export takes the CLI's --out spelling as well as a bare file", () => {
+  // Same field, same word on both surfaces: `--out` is what the CLI documents,
+  // and the bare positional stays for muscle memory.
+  assert.deepEqual(parseExportArgs([]), { all: false });
+  assert.deepEqual(parseExportArgs(["backup.json"]), { out: "backup.json", all: false });
+  assert.deepEqual(parseExportArgs(["--out", "backup.json"]), { out: "backup.json", all: false });
+  assert.deepEqual(parseExportArgs(["backup.json", "--all"]), { out: "backup.json", all: true });
+
+  // Refused instead of resolved: an unknown flag, a missing value, two targets.
+  assert.throws(() => parseExportArgs(["--bogus"]), /Unexpected "--bogus"/);
+  assert.throws(() => parseExportArgs(["--out"]), /--out needs a file/);
+  assert.throws(() => parseExportArgs(["--out", "--all"]), /--out needs a file/);
+  assert.throws(() => parseExportArgs(["a.json", "--out", "b.json"]), /one destination/);
 });

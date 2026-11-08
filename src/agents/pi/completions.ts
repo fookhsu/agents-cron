@@ -5,7 +5,7 @@ import { listRuns } from "../../runs.ts";
 import { schedulerPaths } from "../../paths.ts";
 import { resolve } from "node:path";
 import type { RunRecord, ScheduleTask } from "../../types.ts";
-import { formatDate, formatSchedule, previewPrompt } from "./format.ts";
+import { formatSchedule, previewPrompt, stamp } from "../../format.ts";
 
 /**
  * Argument completion ("命令联想") for the three slash commands. Pi's TUI
@@ -152,7 +152,7 @@ export function completeScheduleArguments(
       ? matched.map((run) => ({
           value: `${action} ${run.runId}`,
           label: run.runId,
-          description: `[${run.status}] ${run.trigger} — ${formatDate(run.finishedAt ?? run.startedAt)}`,
+          description: `[${run.status}] ${run.trigger} — ${stamp(run.finishedAt ?? run.startedAt)}`,
         }))
       : null;
   }

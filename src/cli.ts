@@ -25,6 +25,7 @@ import { PI_STORE_ENV } from "./agents/pi/adapter.ts";
 import { migratePiSessions } from "./agents/pi/migrate.ts";
 import type { AgentRegistry } from "./agents/registry.ts";
 import { AppError, CliInputError, EnvironmentError } from "./errors.ts";
+import { formatRunLine, formatTaskDetail, formatTaskLine, previewPrompt } from "./format.ts";
 import { acquireLock } from "./lock.ts";
 import { loadNotifyConfig, normalizeChannelIds } from "./notify/config.ts";
 import { notifiersFor } from "./notify/dispatch.ts";
@@ -75,7 +76,7 @@ const USAGE = [
   "",
   "Global: --project <path> (default: current directory)  --json (machine-readable result)",
   `Agents: --agent <id> selects the adapter — built in: pi, claude, codex (default: pi)`,
-  "add options: --name --agent --model --thinking --cwd --tools a,b --notify always|error|never --notify-to a,b",
+  "add options: --name --agent --model --thinking --cwd --tools a,b --notify always|error|never --notify-to a,b (--to)",
   "set options: the same flags; an empty value clears the override — --model= --thinking= --tools=",
   "             thinking levels: off, minimal, low, medium, high, xhigh, max",
   "",
@@ -83,14 +84,24 @@ const USAGE = [
   "Errors: one line on stderr — error: <code>: <message>",
 ].join("\n");
 
+/**
+ * The notification routing flags. `--notify-to` is the one name; `--to` is
+ * kept as its short spelling because the Pi commands have always taken it, so
+ * both surfaces read and write the same field with the same word in `--help`.
+ * `--notify-to` wins when both are written, and saying both differently is
+ * refused rather than silently resolved — a shell alias passing `--to` must
+ * not quietly override the explicit flag.
+ */
+const ROUTE_FLAGS = ["notify-to", "to"] as const;
+
 /** Everything a command may be given; anything else is refused, not guessed at. */
 const COMMAND_FLAGS: Record<string, readonly string[]> = {
   help: [],
   list: ["limit", "full", "json"],
   show: ["json"],
   runs: ["limit", "full", "json"],
-  add: ["prompt", "at", "every", "cron", "timezone", "name", "agent", "model", "thinking", "cwd", "tools", "notify", "notify-to", "json"],
-  set: ["name", "agent", "model", "thinking", "cwd", "tools", "notify", "notify-to", "json"],
+  add: ["prompt", "at", "every", "cron", "timezone", "name", "agent", "model", "thinking", "cwd", "tools", "notify", ...ROUTE_FLAGS, "json"],
+  set: ["name", "agent", "model", "thinking", "cwd", "tools", "notify", ...ROUTE_FLAGS, "json"],
   enable: ["json"],
   disable: ["json"],
   remove: ["json"],
@@ -321,7 +332,7 @@ async function commandList(project: string, flags: Flags, out: Out): Promise<num
     }
     const latest = latestByProject.get(task.projectDir)!.find((run) => run.taskId === task.id);
     const missing = existsSync(task.projectDir) ? "" : " ⚠ missing directory";
-    out(formatTaskLine(task, latest, missing));
+    out(formatTaskLine(task, { latestRun: latest, suffix: missing }));
   }
   const hereCount = tasks.filter((task) => task.projectDir === local).length;
   const otherProjects = new Set(tasks.filter((task) => task.projectDir !== local).map((task) => task.projectDir)).size;
@@ -364,14 +375,7 @@ async function commandRuns(project: string, flags: Flags, id: string, out: Out):
   const limit = resolveLimit(flags, DEFAULT_RUNS_LIMIT);
   const shown = limit > 0 ? runs.slice(0, limit) : runs;
   const full = flags.has("full");
-  for (const run of shown) {
-    const when = stamp(run.finishedAt ?? run.startedAt);
-    const parts = [`${run.runId} [${run.status}] ${run.trigger} — ${when}`];
-    if (run.error) parts.push(`— ${firstLine(run.error)}`);
-    if (full && run.summary) parts.push(`\n  ${firstLine(run.summary)}`);
-    if (full && run.sessionFile) parts.push(`\n  session: ${run.sessionFile}`);
-    out(parts.join(" "));
-  }
+  for (const run of shown) out(formatRunLine(run, { full }));
   const hidden = runs.length - shown.length;
   if (hidden > 0) out(`… ${hidden} older run(s) hidden (--limit 0 for all)`);
 
@@ -384,7 +388,7 @@ async function commandRuns(project: string, flags: Flags, id: string, out: Out):
 
 async function commandAdd(project: string, flags: Flags, out: Out): Promise<number> {
   const prompt = requireFlag(flags, "prompt", "add requires --prompt <text>");
-  const notifyTo = notifyToFlag(flags);
+  const notifyTo = notifyToFlag(flags, "add");
   const task = await addTask(project, {
     prompt,
     schedule: scheduleFromFlags(flags),
@@ -441,7 +445,8 @@ function patchFromFlags(flags: Flags): TaskPatch {
     if (flags.has(field)) patch[field] = stringFlag(flags, field) ?? "";
   }
   if (flags.has("tools")) patch.tools = commaList(stringFlag(flags, "tools"));
-  if (flags.has("notify-to")) patch.notifyTo = commaList(stringFlag(flags, "notify-to"));
+  const route = routeFlagName(flags, "set");
+  if (route) patch.notifyTo = commaList(stringFlag(flags, route));
   if (flags.has("notify")) {
     const value = stringFlag(flags, "notify") ?? "";
     if (value && value !== "always" && value !== "error" && value !== "never") {
@@ -556,10 +561,6 @@ async function commandImport(
   return 0;
 }
 
-function previewPrompt(prompt: string): string {
-  return prompt.length > 40 ? `${prompt.slice(0, 40)}…` : prompt;
-}
-
 /**
  * Spawns the interactive notification wizard. It drives a real terminal
  * (menus, hidden secret entry, browser opening), so it refuses to run when
@@ -586,11 +587,19 @@ function notifyFlag(flags: Flags): "always" | "error" | "never" | undefined {
   throw new CliInputError("bad_value", `--notify must be one of: always, error, never — got '${value}'`);
 }
 
-/** --notify-to a,b — comma-separated channel ids; empty means "no routing". */
-function notifyToFlag(flags: Flags): ChannelId[] | undefined {
-  const value = stringFlag(flags, "notify-to");
-  if (value === undefined) return undefined;
-  return normalizeChannelIds(value.split(","));
+function routeFlagName(flags: Flags, command: string): string | undefined {
+  const present = ROUTE_FLAGS.filter((name) => flags.has(name));
+  if (present.length === 2) {
+    throw new CliInputError("usage", `${command}: --to is a short spelling of --notify-to; pass one of them`);
+  }
+  return present[0];
+}
+
+/** --notify-to a,b (alias --to) — comma-separated channel ids; empty means "no routing". */
+function notifyToFlag(flags: Flags, command = "add"): ChannelId[] | undefined {
+  const name = routeFlagName(flags, command);
+  if (name === undefined) return undefined;
+  return normalizeChannelIds((stringFlag(flags, name) ?? "").split(","));
 }
 
 /** Sends a synthetic notification through every configured channel (or one). */
@@ -882,77 +891,6 @@ function scheduleFromFlags(flags: Flags): ScheduleInput {
     return { kind: "interval", every };
   }
   return { kind: "cron", expression: cron!, timezone: stringFlag(flags, "timezone") };
-}
-
-// --- formatting -------------------------------------------------------------
-
-/** 30m, 2h, 1d…; sub-second oddities keep their milliseconds. */
-function formatInterval(ms: number): string {
-  const units: Array<[number, string]> = [
-    [86_400_000, "d"],
-    [3_600_000, "h"],
-    [60_000, "m"],
-    [1_000, "s"],
-  ];
-  for (const [size, suffix] of units) {
-    if (ms >= size && ms % size === 0) return `${ms / size}${suffix}`;
-  }
-  return `${ms}ms`;
-}
-
-/** Compact ISO 8601: whole seconds drop the `.000`, so lines stay scannable and diffable. */
-function stamp(iso?: string): string {
-  return iso === undefined ? "never" : iso.replace(/\.000Z$/, "Z");
-}
-
-function firstLine(text: string): string {
-  const line = text.split("\n")[0].trim();
-  return line.length > 120 ? `${line.slice(0, 120)}…` : line;
-}
-
-function formatTaskLine(task: ScheduleTask, latestRun?: RunRecord, suffix = ""): string {
-  const state = task.enabled ? "enabled" : "disabled";
-  const last = latestRun
-    ? ` — last ${latestRun.status} at ${stamp(latestRun.finishedAt ?? latestRun.startedAt)}`
-    : " — never run";
-  return `${task.id} [${state}] ${task.name ?? "-"} — ${scheduleSummary(task)}${suffix} — next ${stamp(task.nextRunAt)}${last}`;
-}
-
-/** Verbose sibling of formatTaskLine: every scheduling fact, then the prompt. */
-function formatTaskDetail(task: ScheduleTask): string {
-  const lines = [
-    `${task.id} [${task.enabled ? "enabled" : "disabled"}] ${task.name ?? "-"}`,
-    `project: ${task.projectDir}`,
-    `schedule: ${scheduleSummary(task)}`,
-    `next run: ${stamp(task.nextRunAt)}`,
-  ];
-  if (task.lastRunAt) {
-    lines.push(`last run: ${stamp(task.lastRunAt)}${task.lastStatus ? ` (${task.lastStatus})` : ""}`);
-  }
-  const counters = [
-    task.successCount !== undefined ? `${task.successCount} success` : undefined,
-    task.errorCount !== undefined ? `${task.errorCount} error` : undefined,
-    task.missedCount !== undefined ? `${task.missedCount} missed` : undefined,
-  ].filter(Boolean);
-  if (counters.length > 0) lines.push(`runs: ${counters.join(", ")}`);
-  if (task.agent) lines.push(`agent: ${task.agent}`);
-  if (task.model) lines.push(`model: ${task.model}`);
-  if (task.thinking) lines.push(`thinking: ${task.thinking}`);
-  if (task.cwd) lines.push(`cwd: ${task.cwd}`);
-  if (task.tools?.length) lines.push(`tools: ${task.tools.join(", ")}`);
-  if (task.notify) lines.push(`notify: ${task.notify}`);
-  if (task.notifyTo?.length) lines.push(`notify to: ${task.notifyTo.join(", ")}`);
-  lines.push(`created: ${stamp(task.createdAt)}  updated: ${stamp(task.updatedAt)}`);
-  lines.push("", "prompt:", task.prompt);
-  return lines.join("\n");
-}
-
-function scheduleSummary(task: ScheduleTask): string {
-  if (task.schedule.kind === "interval") return `every ${formatInterval(task.schedule.everyMs)}`;
-  if (task.schedule.kind === "cron") {
-    return `cron ${task.schedule.expression}${task.schedule.timezone ? ` (${task.schedule.timezone})` : ""}`;
-  }
-  return `once ${stamp(task.schedule.runAt)}`;
 }
 
 /** Names an agent id that would fail at 3 a.m. instead of now. */

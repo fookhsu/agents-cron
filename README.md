@@ -278,6 +278,14 @@ every few seconds, and stops with Ctrl-C. Because it never writes, it takes no
 run lock and never interferes with cron's `run-due` — leave it open in a tab
 all day if you like.
 
+Its JSON is a machine-readable surface of its own, with the same discipline as
+the CLI: `/api/runs?taskId=<id>&limit=<n>` returns `{taskId, total, returned,
+has_more, runs}`, adding `next_limit` when the page is cut, so a caller never
+has to infer truncation from the array length; `/api/overview` returns
+`{generatedAt, total, enabled, failures, tasks}` with each task's `latestRun`;
+and every non-2xx body is `{"error": {"code", "message"}}` — `missing_parameter`,
+`not_found`, `method_not_allowed`, or the scheduler's own `corrupt_registry`.
+
 ![agents-cron dashboard showing four tasks across the pi, claude, and codex adapters, with a run history including one error and one in-flight run](assets/dashboard.png)
 
 **Dashboard lifecycle.** `agents-cron dashboard start` (or `/schedule dashboard`)
@@ -371,8 +379,8 @@ file permissions), and by default only **failed** runs notify:
 /schedule open <runId>
 /schedule dashboard                    # start the detached dashboard
 /schedule dashboard stop|status        # reclaim it, or see where it runs
-/schedule export [file]              # definitions to agents-cron.tasks.json
-/schedule export --all               # every project's definitions
+/schedule export [file|--out <file>]   # definitions to agents-cron.tasks.json
+/schedule export --all                 # every project's definitions
 /schedule import <file>              # new tasks here, disabled until enabled
 /schedule clear
 /schedule help
@@ -390,6 +398,10 @@ prompt: `--to <id,id>` routes the task's notifications to those channels, and
 `/remind in 45m review the release --to feishu --notify always` reaches you on
 Feishu the moment the run finishes. The same position pins the run's model:
 `--model <id>`, `--thinking <level>`, and `--agent <id>`.
+
+`--notify-to` is the spelling both surfaces answer to; `--to` is its short
+form (the Pi commands have always taken it), and `/schedule help` lists both.
+Passing both on one command is refused rather than silently resolved.
 
 `/schedule set <id> <flags>` reconfigures an existing task with the same
 fields — `--model`, `--thinking`, `--agent`, `--name`, `--cwd`, `--tools a,b`,
