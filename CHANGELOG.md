@@ -7,6 +7,53 @@ new one as an in-terminal notice; `/schedule changelog` shows this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The CLI's output is now a contract written for agents, not a human reading
+  a terminal. Bare `agents-cron` answers with the task list
+  instead of usage; every mutation prints the state it produced (the updated
+  task line, the remaining count) and closes with a `next: agents-cron …`
+  line; `list` and `runs` carry the true total and announce what `--limit`
+  hid; empty results state what is empty and what to run instead, still at
+  exit `0`.
+- Unknown input is refused instead of silently ignored: an unknown flag, a
+  flag a command does not take, a stray positional, or `--flag=value` on a
+  boolean exits `2` naming what the command accepts. Previously `list
+  --bogus x` and `add --prompt x --at 2026-9-1` both succeeded while doing
+  something other than what was written.
+- Errors are one line on stderr — `error: <code>: <message>` — with a code a
+  script can branch on, and nothing on stdout. Exit codes separate the two
+  faults they used to conflate: `2` is now bad input only (flags, arguments,
+  invalid schedule, unknown task id), and a machine at fault is `3` — a
+  corrupt or unsupported store (`corrupt_store`, `corrupt_registry`), a busy
+  run lock (`lock_busy`), no terminal for `setup-notify` (`no_tty`). `1`
+  stays "a run or notification failed". Cron's contract is unchanged (it only
+  distinguishes zero from non-zero). The store and registry modules now throw
+  `EnvironmentError` for their own failures instead of a bare `Error` that the
+  CLI had to classify by guessing.
+- `nextRunAt` and other timestamps print in compact ISO 8601 (whole seconds
+  lose `.000`), and task lines say `never run` instead of omitting the run.
+
+### Added
+
+- `agents-cron runs <taskId> [--limit <n>] [--json]`: a task's run history,
+  newest first, with its errors on the line and a status breakdown — the
+  observation `run` and `run-due` now point at, instead of making a caller
+  dig through `.agents/cron/runs/`.
+- `--json` on every command that has a JSON shape, including mutations
+  (`created` / `updated` / `removed` + remaining count). Where no shape exists
+  (`setup-notify`, `migrate-sessions`) the flag is refused rather than
+  accepted and ignored.
+- `add` warns on stderr when `--agent` names an adapter that is not
+  registered, so a typo fails at write time instead of at the next 3 a.m. run.
+
+### Fixed
+
+- `agents-cron add --prompt x --every 1h --agent <typo>` used to store the
+  typo silently and fail on every run afterwards.
+
 ## [0.16.2] - 2026-11-08
 
 ### Changed
