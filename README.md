@@ -380,9 +380,10 @@ gone self-heals the next time anything asks for status. Its output goes to
 ## Notifications
 
 First-time setup is a guided wizard — `agents-cron setup-notify` opens the
-mail and Feishu consoles for you, captures the SMTP authorization code and
-bot webhook URL, writes the config, wires your shell and crontab, and
-live-tests every channel.
+mail, Feishu, and Telegram consoles for you, captures the SMTP authorization
+code, the Feishu webhook URL and its signing secret, and the Telegram bot
+token, writes the config, wires your shell and crontab, and live-tests every
+channel.
 
 Runs can announce themselves. Channels live in `.agents/cron/config.json`
 (user-authored — `chmod 600` it, webhook tokens and SMTP hosts belong behind
@@ -396,6 +397,10 @@ file permissions), and by default only **failed** runs notify:
     "channels": [
       { "id": "team", "type": "webhook", "url": "https://hooks.slack.com/services/…",
         "headers": { "Authorization": "Bearer …" } },
+      { "id": "feishu", "type": "feishu", "url": "https://open.feishu.cn/open-apis/bot/v2/hook/…",
+        "secretEnv": "AGENTS_CRON_FEISHU_SECRET" },
+      { "id": "tg", "type": "telegram", "chatId": "123456789",
+        "tokenEnv": "AGENTS_CRON_TELEGRAM_TOKEN" },
       { "id": "mail", "type": "email", "host": "smtp.example.com", "port": 465,
         "user": "cron@example.com", "from": "cron@example.com", "to": "you@example.com" }
     ]
@@ -417,9 +422,24 @@ file permissions), and by default only **failed** runs notify:
   one reminder to stderr (which lands in the cron log) — nothing fails, no
   setup is forced. `agents-cron setup-notify` adds channels whenever you want
   them.
-- **webhook** works with anything that accepts a POST: Slack, Lark, Discord,
-  n8n, a home-rolled endpoint. The default body is JSON
+- **webhook** works with anything that accepts a POST: Slack, Discord, n8n,
+  a home-rolled endpoint. The default body is JSON
   (`{source, project, task, run…}`); `format: "text"` posts the human summary.
+- **feishu** is the first-class Feishu custom bot (自定义机器人) channel:
+  `{ "id": "feishu", "type": "feishu", "url":
+  "https://open.feishu.cn/open-apis/bot/v2/hook/…", "secretEnv":
+  "AGENTS_CRON_FEISHU_SECRET" }`. Bots secured with 签名校验 are supported —
+  the secret comes from the environment (the variable `secretEnv` names,
+  that one by default), and every request is signed per Feishu's scheme; a
+  configured-but-unset env var fails the send loudly, so a signature is
+  never silently skipped. Keyword-secured (自定义关键词) and open bots need
+  no secret: omit `secretEnv` entirely.
+- **telegram** posts into a chat through a bot: `{ "id": "tg", "type":
+  "telegram", "chatId": "123456789", "tokenEnv":
+  "AGENTS_CRON_TELEGRAM_TOKEN" }`. `chatId` takes the numeric id of a user,
+  group, or channel, or an `@name` for a public one; the bot token lives in
+  the environment, never the config file; `apiBase` points at a self-hosted
+  Bot API server when you run one.
 - **system** shows the run as a desktop notification — macOS Notification
   Center (`osascript`, optional `sound`) or Linux `notify-send`. No external
   service needed, so it is the lightest way to make reminders perceptible:

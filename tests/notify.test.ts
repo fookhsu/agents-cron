@@ -20,9 +20,11 @@ after(() => restoreHome?.());
 import { shouldNotify, notifiersFor, dispatchNotifications } from "../src/notify/dispatch.ts";
 import { loadNotifyConfig } from "../src/notify/config.ts";
 import { emailNotifier, type MailTransport } from "../src/notify/email.ts";
+import { feishuNotifier, feishuSign } from "../src/notify/feishu.ts";
 import { systemNotifier, type CommandRunner } from "../src/notify/system.ts";
+import { telegramNotifier } from "../src/notify/telegram.ts";
 import { subjectOf } from "../src/notify/format.ts";
-import type { NotificationChannel, NotificationsConfig, RunNotification, SystemChannel, WebhookChannel } from "../src/notify/types.ts";
+import type { FeishuChannel, NotificationChannel, NotificationsConfig, RunNotification, SystemChannel, TelegramChannel, WebhookChannel } from "../src/notify/types.ts";
 import type { AgentAdapter, AgentRunRequest, AgentRunResult } from "../src/agents/types.ts";
 import type { AgentRegistry } from "../src/agents/registry.ts";
 import { runDue } from "../src/runner.ts";
@@ -575,4 +577,189 @@ test("config defaultTo routes tasks that name no channels of their own", async (
     await a.close();
     await b.close();
   }
+});
+
+test("a feishu channel posts unsigned when no secret is configured", async () => {
+  const server = await capturingServer();
+  const channel: FeishuChannel = { id: "feishu", type: "feishu", url: server.url };
+  await feishuNotifier(channel).send(sampleNotification("success"));
+  try {
+    const payload = JSON.parse(server.requests[0].body);
+    assert.equal(payload.msg_type, "text");
+    assert.ok(payload.content.text.startsWith("✓ nightly digest success"));
+    assert.equal(payload.timestamp, undefined);
+    assert.equal(payload.sign, undefined);
+  } finally {
+    await server.close();
+  }
+});
+
+test("a feishu channel signs the body when the secret is present", async () => {
+  const server = await capturingServer();
+  const channel: FeishuChannel = {
+    id: "feishu",
+    type: "feishu",
+    url: server.url,
+    secretEnv: "TEST_FEISHU_SECRET",
+  };
+  await feishuNotifier(channel, { TEST_FEISHU_SECRET: "sekrit" }).send(sampleNotification("success"));
+  try {
+    const payload = JSON.parse(server.requests[0].body);
+    assert.ok(/^\d{10}$/.test(payload.timestamp));
+    assert.equal(payload.sign, feishuSign(payload.timestamp, "sekrit"));
+  } finally {
+    await server.close();
+  }
+});
+
+test("a feishu channel configured with a secretEnv fails loudly when the env var is unset", async () => {
+  const channel: FeishuChannel = {
+    id: "feishu",
+    type: "feishu",
+    url: "https://example.test/hook",
+    secretEnv: "TEST_FEISHU_ABSENT",
+  };
+  await assert.rejects(
+    feishuNotifier(channel, {}).send(sampleNotification("error")),
+    /TEST_FEISHU_ABSENT is not set/,
+  );
+});
+
+test("a feishu channel reports the bot's rejection code", async () => {
+  const server: Server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      res.writeHead(200, { "content-type": "application/json" });
+      // Feishu answers HTTP 200 even for business errors; code carries the truth.
+      res.end(JSON.stringify({ code: 19021, msg: "sign match fail" }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const channel: FeishuChannel = { id: "feishu", type: "feishu", url: `http://127.0.0.1:${address.port}/hook` };
+  const notifier = feishuNotifier(channel);
+  try {
+    await assert.rejects(notifier.send(sampleNotification("success")), /19021.*sign match fail/);
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("a telegram channel posts to the bot API with the token in the URL", async () => {
+  let seenUrl = "";
+  let seenBody = "";
+  const server: Server = createServer((req, res) => {
+    let data = "";
+    req.on("data", (chunk) => (data += chunk));
+    req.on("end", () => {
+      seenUrl = req.url ?? "";
+      seenBody = data;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true, result: { message_id: 1 } }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const channel: TelegramChannel = {
+    id: "tg",
+    type: "telegram",
+    chatId: "424242",
+    tokenEnv: "TEST_TG_TOKEN",
+    apiBase: `http://127.0.0.1:${address.port}`,
+  };
+  const notifier = telegramNotifier(channel, { TEST_TG_TOKEN: "sekrit-token" });
+  try {
+    await notifier.send(sampleNotification("success"));
+    assert.equal(seenUrl, "/botsekrit-token/sendMessage");
+    const payload = JSON.parse(seenBody);
+    assert.equal(payload.chat_id, "424242");
+    assert.ok(payload.text.startsWith("✓ nightly digest success"));
+    assert.equal(payload.disable_web_page_preview, true);
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("a telegram channel surfaces the API description when the send fails", async () => {
+  const server: Server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      res.writeHead(400, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error_code: 400, description: "chat not found" }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const channel: TelegramChannel = {
+    id: "tg",
+    type: "telegram",
+    chatId: "424242",
+    tokenEnv: "TEST_TG_TOKEN",
+    apiBase: `http://127.0.0.1:${address.port}`,
+  };
+  const notifier = telegramNotifier(channel, { TEST_TG_TOKEN: "t" });
+  try {
+    await assert.rejects(notifier.send(sampleNotification("error")), /HTTP 400.*chat not found/);
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("a telegram channel fails loudly without its token", async () => {
+  const channel: TelegramChannel = {
+    id: "tg",
+    type: "telegram",
+    chatId: "424242",
+    tokenEnv: "TEST_TG_ABSENT",
+  };
+  await assert.rejects(
+    telegramNotifier(channel, {}).send(sampleNotification("error")),
+    /TEST_TG_ABSENT/,
+  );
+});
+
+test("the config parser accepts feishu and telegram channels and drops broken ones", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "agents-cron-notify-"));
+  await writeFile(
+    join(dir, "config.json"),
+    JSON.stringify({
+      version: 1,
+      notifications: {
+        channels: [
+          { id: "feishu", type: "feishu", url: "https://open.feishu.cn/open-apis/bot/v2/hook/x" },
+          { id: "feishu-signed", type: "feishu", url: "https://open.feishu.cn/open-apis/bot/v2/hook/y", secretEnv: "AGENTS_CRON_FEISHU_SECRET" },
+          { id: "bad-feishu", type: "feishu", url: "not-a-url" },
+          { id: "tg", type: "telegram", chatId: "424242", tokenEnv: "AGENTS_CRON_TELEGRAM_TOKEN", apiBase: "https://tg.example.com" },
+          { id: "tg-min", type: "telegram", chatId: "@channel" },
+          { id: "bad-tg", type: "telegram" },
+        ],
+      },
+    }),
+  );
+  const config = await loadNotifyConfig(dir);
+  assert.deepEqual(config.channels.map((c: NotificationChannel) => c.id), ["feishu", "feishu-signed", "tg", "tg-min"]);
+  const [feishu, feishuSigned, tg, tgMin] = config.channels;
+  assert.deepEqual(feishu, { id: "feishu", type: "feishu", url: "https://open.feishu.cn/open-apis/bot/v2/hook/x" });
+  assert.deepEqual(feishuSigned, {
+    id: "feishu-signed",
+    type: "feishu",
+    url: "https://open.feishu.cn/open-apis/bot/v2/hook/y",
+    secretEnv: "AGENTS_CRON_FEISHU_SECRET",
+  });
+  assert.deepEqual(tg, {
+    id: "tg",
+    type: "telegram",
+    chatId: "424242",
+    tokenEnv: "AGENTS_CRON_TELEGRAM_TOKEN",
+    apiBase: "https://tg.example.com",
+  });
+  assert.deepEqual(tgMin, { id: "tg-min", type: "telegram", chatId: "@channel" });
 });

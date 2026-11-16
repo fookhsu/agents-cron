@@ -38,6 +38,33 @@ export type EmailChannel = {
   subjectPrefix?: string;
 };
 
+/** Posts the run to a Feishu custom bot (自定义机器人), signing when configured. */
+export type FeishuChannel = {
+  id: string;
+  type: "feishu";
+  /** The bot webhook URL, https://open.feishu.cn/open-apis/bot/v2/hook/…. */
+  url: string;
+  /**
+   * Env var holding the 签名校验 (signature) secret; defaults to
+   * AGENTS_CRON_FEISHU_SECRET. Absent → the body goes unsigned, which suits
+   * keyword-secured (自定义关键词) and open bots. Set but unset in the env →
+   * the send fails loudly rather than silently skipping the signature.
+   */
+  secretEnv?: string;
+};
+
+/** Sends the run to a Telegram chat through a bot. */
+export type TelegramChannel = {
+  id: string;
+  type: "telegram";
+  /** Numeric chat id, or an @name for a public channel. */
+  chatId: string;
+  /** Env var holding the bot token; defaults to AGENTS_CRON_TELEGRAM_TOKEN. */
+  tokenEnv?: string;
+  /** API base for a self-hosted Bot API server; defaults to https://api.telegram.org. */
+  apiBase?: string;
+};
+
 /** Shows the run as a desktop notification (macOS Notification Center, Linux notify-send). */
 export type SystemChannel = {
   id: string;
@@ -46,7 +73,7 @@ export type SystemChannel = {
   sound?: string;
 };
 
-export type NotificationChannel = WebhookChannel | EmailChannel | SystemChannel;
+export type NotificationChannel = WebhookChannel | EmailChannel | SystemChannel | FeishuChannel | TelegramChannel;
 
 /** Which runs produce a notification. */
 export type NotifyLevel = "always" | "error" | "never";

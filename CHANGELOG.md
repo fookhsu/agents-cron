@@ -7,6 +7,24 @@ new one as an in-terminal notice; `/schedule changelog` shows this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Two first-class notification channels. **feishu** posts to a Feishu custom
+  bot (自定义机器人) and signs each request with the 签名校验 secret read
+  from the environment — `secretEnv` names the variable,
+  `AGENTS_CRON_FEISHU_SECRET` by default; a configured-but-unset variable
+  fails the send loudly, and keyword-secured or open bots simply omit
+  `secretEnv` and stay unsigned. **telegram** posts into any chat through a
+  bot: the token lives in the environment (`tokenEnv`,
+  `AGENTS_CRON_TELEGRAM_TOKEN` by default), `chatId` takes a numeric id or
+  an `@name`, and `apiBase` points at a self-hosted Bot API server. Both
+  ride the same best-effort 10s dispatch as every other channel, and
+  `agents-cron setup-notify` gained wizard stages for them — the Feishu one
+  no longer has to warn you away from 签名校验. The older `webhook` with
+  `format: "feishu"` config keeps working unchanged.
+
 ## [0.18.2] - 2026-11-16
 
 ### Added

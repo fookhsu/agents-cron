@@ -1,7 +1,9 @@
 import { basename } from "node:path";
 import type { RunRecord, ScheduleTask } from "../types.ts";
 import { emailNotifier } from "./email.ts";
+import { feishuNotifier } from "./feishu.ts";
 import { systemNotifier } from "./system.ts";
+import { telegramNotifier } from "./telegram.ts";
 import { webhookNotifier } from "./webhook.ts";
 import type { ChannelId, Notifier, NotificationChannel, NotificationsConfig, NotifyLevel, RunNotification } from "./types.ts";
 
@@ -44,6 +46,8 @@ export function notifiersForTask(config: NotificationsConfig, ids?: ChannelId[])
 
 function notifierFor(channel: NotificationChannel): Notifier | undefined {
   if (channel.type === "webhook") return webhookNotifier(channel);
+  if (channel.type === "feishu") return feishuNotifier(channel);
+  if (channel.type === "telegram") return telegramNotifier(channel);
   if (channel.type === "email") return emailNotifier(channel);
   if (channel.type === "system") return systemNotifier(channel);
   return undefined;

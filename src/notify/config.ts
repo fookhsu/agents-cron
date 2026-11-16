@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ChannelId, EmailChannel, NotificationChannel, NotificationsConfig, NotifyLevel, SystemChannel, WebhookChannel } from "./types.ts";
+import type { ChannelId, EmailChannel, FeishuChannel, NotificationChannel, NotificationsConfig, NotifyLevel, SystemChannel, TelegramChannel, WebhookChannel } from "./types.ts";
 
 /** The default: cron only interrupts you when something actually broke. */
 export const DEFAULT_NOTIFY_LEVEL: NotifyLevel = "error";
@@ -72,6 +72,27 @@ function asChannel(entry: unknown): NotificationChannel | undefined {
         : undefined;
     const format = c.format === "text" || c.format === "feishu" ? c.format : "json";
     return { id: c.id, type: "webhook", url: c.url, ...(headers ? { headers } : {}), ...(format !== "json" ? { format } : {}) } satisfies WebhookChannel;
+  }
+
+  if (c.type === "feishu") {
+    if (typeof c.url !== "string" || !/^https?:\/\//.test(c.url)) return undefined;
+    return {
+      id: c.id,
+      type: "feishu",
+      url: c.url,
+      ...(typeof c.secretEnv === "string" && c.secretEnv ? { secretEnv: c.secretEnv } : {}),
+    } satisfies FeishuChannel;
+  }
+
+  if (c.type === "telegram") {
+    if (typeof c.chatId !== "string" || !c.chatId) return undefined;
+    return {
+      id: c.id,
+      type: "telegram",
+      chatId: c.chatId,
+      ...(typeof c.tokenEnv === "string" && c.tokenEnv ? { tokenEnv: c.tokenEnv } : {}),
+      ...(typeof c.apiBase === "string" && c.apiBase ? { apiBase: c.apiBase } : {}),
+    } satisfies TelegramChannel;
   }
 
   if (c.type === "email") {
