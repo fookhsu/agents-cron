@@ -33,7 +33,7 @@ import type { ChannelId, RunNotification } from "./notify/types.ts";
 import { schedulerPaths } from "./paths.ts";
 import { loadRegistry } from "./registry.ts";
 import { listRuns, listRunsForTask, pruneRuns } from "./runs.ts";
-import { runDue, runTask, DEFAULT_KEEP_RUNS } from "./runner.ts";
+import { runDue, runTask, DEFAULT_KEEP_RUNS, TaskNotFoundError } from "./runner.ts";
 import type { ScheduleInput } from "./scheduling.ts";
 import { addTask, clearTasks, describeOverrides, exportTasks, importTasks, listTasks, removeTask, requireTask, setTaskEnabled, updateTask, type TaskPatch } from "./task-service.ts";
 import { parseExportFile } from "./task-export.ts";
@@ -1058,6 +1058,7 @@ function resolveLimit(flags: Flags, fallback: number): number {
 function errorLine(error: unknown): string {
   if (error instanceof AppError) return `error: ${error.code}: ${error.message}`;
   if (error instanceof UnknownAgentError) return `error: unknown_agent: ${error.message}`;
+  if (error instanceof TaskNotFoundError) return `error: not_found: ${error.message}`;
   if (error instanceof Error) return `error: input: ${error.message}`;
   return `error: internal: ${String(error)}`;
 }

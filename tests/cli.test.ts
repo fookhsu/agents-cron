@@ -741,7 +741,7 @@ test("a missing task is bad input: exit 2, stderr only, nothing on stdout", asyn
     stderr.length = 0;
     assert.equal(await main(command, deps), 2);
     assert.deepEqual(stdout, []);
-    assert.match(stderr.join("\n"), /^error: input: Task not found: task_nope/);
+    assert.match(stderr.join("\n"), /^error: not_found: Task not found: task_nope/);
   }
 });
 
