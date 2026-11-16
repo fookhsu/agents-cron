@@ -7,6 +7,30 @@ new one as an in-terminal notice; `/schedule changelog` shows this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.18.1] - 2026-11-16
+
+### Fixed
+
+- The dashboard's run detail now opens where you clicked: it is a drawer
+  bound to the selected run's row instead of a fixed box below the whole
+  list, so a task with a long run history no longer sends you scrolling to
+  the bottom to read what happened. Clicking the selected run again
+  collapses it; the open drawer is re-bound to its row after each 3s
+  refresh, and closes by itself if the run falls off the list.
+- The session record inside a run detail is a toggle now — `show session
+  record` / `hide session record` — where `load session record` loaded it
+  once and gave no way to close it. The first expand fetches; hide and
+  show afterward serve the cached record without re-fetching.
+
+### Added
+
+- `not_found` is the CLI's answer for a task id that does not exist or is
+  ambiguous (`error: not_found: Task not found: nope`, still exit `2`),
+  instead of the generic `error: input: …`. Scripts and agents can now
+  branch on "no such task" — say, to fall back to `list` — without
+  matching message strings; `input` keeps covering every other way the
+  caller's input can be wrong.
+
 ## [0.18.0] - 2026-11-08
 
 ### Changed
@@ -324,7 +348,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Run notifications via webhook and email
 - The extension stays inert when two copies load in one process
 
-[Unreleased]: https://github.com/fookhsu/agents-cron/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/fookhsu/agents-cron/compare/v0.18.1...HEAD
+[0.18.1]: https://github.com/fookhsu/agents-cron/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/fookhsu/agents-cron/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/fookhsu/agents-cron/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/fookhsu/agents-cron/compare/v0.16.1...v0.16.2
