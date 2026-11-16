@@ -60,7 +60,8 @@ export function dashboardPage(projectLabel: string): string {
   ul.runs li:last-child { border-bottom: 1px solid var(--line); }
   ul.runs li:hover { background: var(--panel2); }
   ul.runs li.selected { background: var(--panel2); }
-  .run-detail { border: 1px solid var(--line); background: var(--panel); padding: 14px 16px; }
+  ul.runs li.run-detail { cursor: default; background: var(--bg); padding: 12px 14px; }
+  ul.runs li.run-detail:hover { background: var(--bg); }
   .kv { display: grid; grid-template-columns: 110px 1fr; gap: 3px 12px; font-size: 13px; margin-bottom: 10px; }
   .kv dt { color: var(--dim); font-family: var(--mono); font-size: 12px; }
   .kv dd { margin: 0; word-break: break-word; }
@@ -86,7 +87,6 @@ export function dashboardPage(projectLabel: string): string {
     <h2 id="detail-title"></h2>
     <div id="task-prompt" hidden></div>
     <ul class="runs" id="runs"></ul>
-    <div class="run-detail" id="run-detail" hidden></div>
   </section>
 </main>
 <script>
@@ -98,6 +98,11 @@ const el = (tag, cls, text) => {
   if (text !== undefined) node.textContent = text;
   return node;
 };
+// The run detail is one persistent <li> moved under whichever run row is
+// selected, so it opens where you clicked instead of at the bottom of the
+// page, and its loaded session record survives the 3s polling rebuild.
+const runBox = el("li", "run-detail");
+runBox.id = "run-detail";
 const rel = (iso) => {
   if (!iso) return "—";
   const then = Date.parse(iso);
@@ -196,7 +201,7 @@ function renderTasks(tasks) {
 async function selectTask(taskId) {
   state.selectedTask = taskId;
   state.selectedRun = null;
-  document.getElementById("run-detail").hidden = true;
+  runBox.remove();
   renderPrompt(state.tasks.find((task) => task.id === taskId));
   await refreshOverview();
   await refreshRuns();
@@ -240,19 +245,38 @@ async function refreshRuns() {
   if (!data.runs.length) { list.appendChild(el("li", "dim", "no runs recorded yet")); return; }
   for (const run of data.runs) {
     const li = el("li", state.selectedRun === run.runId ? "selected" : null);
+    li.dataset.runId = run.runId;
     li.appendChild(el("span", "chip " + run.status, run.status));
     li.appendChild(document.createTextNode("  " + new Date(run.startedAt).toLocaleString()));
     li.appendChild(el("span", "dim", "  · " + run.trigger + " · " + dur(run.startedAt, run.finishedAt)));
     li.addEventListener("click", () => selectRun(run));
     list.appendChild(li);
   }
+  // Re-bind the open detail to its run row after the rebuild; if the selected
+  // run fell off the page (pruned, or beyond the limit), close the drawer.
+  if (state.selectedRun) {
+    const row = list.querySelector('li[data-run-id="' + CSS.escape(state.selectedRun) + '"]');
+    if (row) row.insertAdjacentElement("afterend", runBox);
+    else state.selectedRun = null;
+  }
 }
 
 function selectRun(run) {
+  const row = document.querySelector('li[data-run-id="' + CSS.escape(run.runId) + '"]');
+  if (!row) return;
+  if (state.selectedRun === run.runId) {
+    // The detail is bound to its row: clicking the selected run again
+    // collapses it, exactly where it stands.
+    state.selectedRun = null;
+    row.classList.remove("selected");
+    runBox.remove();
+    return;
+  }
   state.selectedRun = run.runId;
-  const box = document.getElementById("run-detail");
-  box.hidden = false;
-  box.textContent = "";
+  const list = document.getElementById("runs");
+  for (const li of list.querySelectorAll("li.selected")) li.classList.remove("selected");
+  row.classList.add("selected");
+  runBox.textContent = "";
   const kv = el("dl", "kv");
   const add = (key, value) => { kv.appendChild(el("dt", null, key)); kv.appendChild(el("dd", "break", value)); };
   add("run", run.runId);
@@ -262,19 +286,28 @@ function selectRun(run) {
   add("agent", run.agent || "—");
   if (run.summary) add("summary", run.summary);
   if (run.error) add("error", run.error);
-  box.appendChild(kv);
-  const link = el("div", "linkish", "load session record");
+  runBox.appendChild(kv);
+  const link = el("div", "linkish", "show session record");
   const pre = el("pre", "record", "");
+  pre.hidden = true;
+  let loaded = false;
   link.addEventListener("click", async () => {
-    link.textContent = "loading…";
-    try {
-      const res = await fetch("api/session/" + encodeURIComponent(run.taskId) + "/" + encodeURIComponent(run.runId));
-      link.textContent = res.ok ? "session record" : "session record: none found (" + res.status + ")";
-      pre.textContent = res.ok ? await res.text() : "";
-    } catch { link.textContent = "session record: fetch failed"; }
-    if (pre.textContent && !box.contains(pre)) box.appendChild(pre);
+    if (pre.hidden && !loaded) {
+      link.textContent = "loading…";
+      try {
+        const res = await fetch("api/session/" + encodeURIComponent(run.taskId) + "/" + encodeURIComponent(run.runId));
+        pre.textContent = res.ok ? await res.text() : "";
+        if (!res.ok) { link.textContent = "session record: none found (" + res.status + ")"; return; }
+        loaded = true;
+      } catch { link.textContent = "session record: fetch failed"; return; }
+    }
+    pre.hidden = !pre.hidden;
+    link.textContent = pre.hidden ? "show session record" : "hide session record";
   });
-  box.appendChild(link);
+  runBox.appendChild(link);
+  runBox.appendChild(pre);
+  row.insertAdjacentElement("afterend", runBox);
+  runBox.scrollIntoView({ block: "nearest" });
 }
 
 document.getElementById("project").textContent = "${escapeJs(projectLabel)}";
