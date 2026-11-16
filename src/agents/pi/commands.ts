@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { dashboardStatus, refusalMessage, startDetachedDashboard, stopDashboard } from "../../dashboard/lifecycle.ts";
+import { feedbackResultLines, submitFeedback, type FeedbackInput, type FeedbackKind, type FeedbackResult } from "../../feedback.ts";
 import { formatRunLine, formatTaskDetail, formatTaskLine, previewPrompt, stamp } from "../../format.ts";
 import { readRun, listRunsForTask } from "../../runs.ts";
 import { runTask } from "../../runner.ts";
@@ -48,6 +49,64 @@ export function parseExportArgs(tokens: string[]): { out?: string; all: boolean 
 
 /** The default file /schedule export writes: definitions only, review-friendly. */
 const DEFAULT_EXPORT_FILE = "agents-cron.tasks.json";
+
+export type FeedbackArgs = {
+  kind: FeedbackKind;
+  message?: string;
+  contact?: string;
+  taskId?: string;
+  includePrompts?: boolean;
+};
+
+/**
+ * `/schedule feedback bug [task_id] <message...> [--contact <email>] [--include-prompts]`.
+ * A second token that looks like a task id (`task_` + hex) is the id; anything
+ * else is the start of the message. Flags are stripped wherever they appear;
+ * what remains is the message.
+ */
+export function parseFeedbackArgs(tokens: string[]): FeedbackArgs {
+  const kind = tokens[0];
+  if (kind !== "bug" && kind !== "idea") {
+    throw new Error(`Usage: /schedule feedback bug|idea [taskId] <message> — got${kind ? ` "${kind}"` : " nothing"}`);
+  }
+  let rest = tokens.slice(1);
+  let taskId: string | undefined;
+  if (/^task_[0-9a-f]+$/.test(rest[0] ?? "")) {
+    taskId = rest[0];
+    rest = rest.slice(1);
+  }
+  let contact: string | undefined;
+  let includePrompts = false;
+  const words: string[] = [];
+  for (let index = 0; index < rest.length; index += 1) {
+    const token = rest[index];
+    if (token === "--include-prompts") {
+      includePrompts = true;
+      continue;
+    }
+    if (token === "--contact") {
+      const value = rest[index + 1];
+      if (!value || value.startsWith("--")) throw new Error("--contact needs an email address");
+      contact = value;
+      index += 1;
+      continue;
+    }
+    if (token.startsWith("--")) throw new Error(`Unexpected "${token}". /schedule feedback takes a message, [--contact <email>], [--include-prompts]`);
+    words.push(token);
+  }
+  return {
+    kind,
+    ...(taskId ? { taskId } : {}),
+    ...(contact ? { contact } : {}),
+    ...(includePrompts ? { includePrompts } : {}),
+    ...(words.length ? { message: words.join(" ") } : {}),
+  };
+}
+
+/** What the reporter sees: where the report is, what happened, and the privacy promise. */
+export function feedbackNotice(result: FeedbackResult, input: FeedbackInput): string {
+  return feedbackResultLines(result, input).join("\n");
+}
 
 export function registerCommands(pi: ExtensionAPI): void {
   // Completions run while the user types, with no ctx; session_start (and
@@ -205,6 +264,21 @@ export function registerCommands(pi: ExtensionAPI): void {
           ctx.ui.notify(`Removed ${id}`, "info");
           return;
         }
+        if (action === "feedback") {
+          const parsed = parseFeedbackArgs(tokens.slice(1));
+          const input: FeedbackInput = {
+            kind: parsed.kind,
+            via: "pi",
+            ...(parsed.message ? { message: parsed.message } : {}),
+            ...(parsed.contact ? { contact: parsed.contact } : {}),
+            ...(parsed.taskId ? { taskId: parsed.taskId } : {}),
+            ...(parsed.includePrompts ? { includePrompts: true } : {}),
+          };
+          const result = await submitFeedback(ctx.cwd, input);
+          ctx.ui.notify(feedbackNotice(result, input), "info");
+          return;
+        }
+
         throw new Error(`Unknown action "${action}".\n${SCHEDULE_HELP}`);
       });
     },

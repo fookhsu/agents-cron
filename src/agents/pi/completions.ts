@@ -1,4 +1,5 @@
 import { CRON_NICKNAMES } from "../../scheduling.ts";
+import { FEEDBACK_KINDS } from "../../feedback.ts";
 import { loadNotifyConfig } from "../../notify/config.ts";
 import { listTasks, THINKING_LEVELS } from "../../task-service.ts";
 import { listRuns } from "../../runs.ts";
@@ -45,6 +46,7 @@ export const SCHEDULE_ACTIONS: readonly ScheduleAction[] = [
   { name: "export", usage: "export [file] [--all]", description: "write task definitions as JSON (default agents-cron.tasks.json)" },
   { name: "import", usage: "import <file>", description: "import definitions into this project; tasks start disabled" },
   { name: "changelog", usage: "changelog", description: "show the shipped changelog" },
+  { name: "feedback", usage: "feedback bug|idea [id] <message>", description: "email a bug report or idea to the author" },
   { name: "clear", usage: "clear", description: "delete all tasks" },
   { name: "help", usage: "help", description: "show this help" },
 ];
@@ -114,6 +116,7 @@ export function scheduleCompletionNeeds(args: string): { tasks: boolean; runs: b
   if (actionsWithPlaceholder("<id>").includes(action)) return { tasks: true, runs: false };
   if (actionsWithPlaceholder("<runId>").includes(action)) return { tasks: false, runs: true };
   if (action === "dashboard") return { tasks: false, runs: false };
+  if (action === "feedback") return { tasks: false, runs: false };
   if (action === "export" && partial.startsWith("-")) return { tasks: false, runs: false };
   return null;
 }
@@ -161,6 +164,17 @@ export function completeScheduleArguments(
     const matched = DASHBOARD_SUBACTIONS.filter((sub) => sub.name.startsWith(partial));
     return matched.length
       ? matched.map((sub) => ({ value: `dashboard ${sub.name}`, label: sub.name, description: sub.description }))
+      : null;
+  }
+
+  if (action === "feedback") {
+    const matched = FEEDBACK_KINDS.filter((kind) => kind.startsWith(partial));
+    return matched.length
+      ? matched.map((kind) => ({
+          value: `feedback ${kind}`,
+          label: kind,
+          description: kind === "bug" ? "something broke — diagnostics are attached" : "an idea for agents-cron",
+        }))
       : null;
   }
 

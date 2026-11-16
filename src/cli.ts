@@ -24,7 +24,9 @@ import { UnknownAgentError, listAgents, unknownAgentWarnings } from "./agents/re
 import { PI_STORE_ENV } from "./agents/pi/adapter.ts";
 import { migratePiSessions } from "./agents/pi/migrate.ts";
 import type { AgentRegistry } from "./agents/registry.ts";
+import { cyan, dim, bold, green, yellow, colorsEnabledFor, setColorEnabled } from "./color.ts";
 import { AppError, CliInputError, EnvironmentError } from "./errors.ts";
+import { FEEDBACK_KINDS, feedbackResultLines, submitFeedback, type FeedbackInput, type FeedbackKind, type FeedbackResult } from "./feedback.ts";
 import { formatRunLine, formatTaskDetail, formatTaskLine, previewPrompt } from "./format.ts";
 import { acquireLock } from "./lock.ts";
 import { loadNotifyConfig, normalizeChannelIds } from "./notify/config.ts";
@@ -73,6 +75,8 @@ const USAGE = [
   "  dashboard start|stop|status [--port <n>]        Detached lifecycle",
   "  test-notify [--channel <id>]                    Send a test notification",
   "  setup-notify                                    Interactive channel wizard (needs a TTY)",
+  "  feedback bug|idea [taskId] [--message <text>] [--contact <email>] [--dry-run]",
+  "          [--include-prompts]                   Report a bug or idea to the author by email",
   "",
   "Global: --project <path> (default: current directory)  --json (machine-readable result)",
   `Agents: --agent <id> selects the adapter — built in: pi, claude, codex (default: pi)`,
@@ -115,6 +119,7 @@ const COMMAND_FLAGS: Record<string, readonly string[]> = {
   dashboard: ["port", "json"],
   "test-notify": ["channel", "json"],
   "setup-notify": [],
+  feedback: ["message", "contact", "include-prompts", "dry-run", "json"],
 };
 
 /** How many positional arguments each command takes: `[min, max]`. */
@@ -138,6 +143,7 @@ const COMMAND_ARITY: Record<string, readonly [number, number]> = {
   dashboard: [0, 1],
   "test-notify": [0, 0],
   "setup-notify": [0, 0],
+  feedback: [1, 2],
 };
 
 export type CliDeps = {
@@ -150,6 +156,9 @@ export type CliDeps = {
 export async function main(argv: string[], deps: CliDeps = {}): Promise<number> {
   const out = deps.stdout ?? ((line: string) => console.log(line));
   const err = deps.stderr ?? ((line: string) => console.error(line));
+  // Color lives only at the terminal edge: a hosted stdout (tests, SDK) or a
+  // pipe keeps the plain bytes that agents parse.
+  setColorEnabled(colorsEnabledFor(process.stdout, process.env, deps.stdout !== undefined));
 
   let parsed: ParsedArgs;
   try {
@@ -201,6 +210,8 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
         return await commandTestNotify(project, flags, out, err);
       case "setup-notify":
         return commandSetupNotify(err);
+      case "feedback":
+        return await commandFeedback(project, positional, flags, out);
       /* c8 ignore next 4 -- validateInvocation rejects unknown commands first */
       default:
         throw new CliInputError("unknown_command", `unknown command "${command}"; run ${BIN} help`);
@@ -319,9 +330,9 @@ async function commandList(project: string, flags: Flags, out: Out): Promise<num
   for (const task of tasks) {
     if (task.projectDir !== local && task.projectDir !== previous) {
       const label = basenames.get(basename(task.projectDir))! > 1 ? task.projectDir : basename(task.projectDir);
-      const missing = existsSync(task.projectDir) ? "" : " ⚠ missing directory";
+      const missing = existsSync(task.projectDir) ? "" : yellow(" ⚠ missing directory");
       out("");
-      out(`${label}${missing} — ${task.projectDir}`);
+      out(`${bold(cyan(label))}${missing} — ${dim(task.projectDir)}`);
       previous = task.projectDir;
     }
     const shown = (seen.get(task.projectDir) ?? 0) + 1;
@@ -331,17 +342,19 @@ async function commandList(project: string, flags: Flags, out: Out): Promise<num
       continue;
     }
     const latest = latestByProject.get(task.projectDir)!.find((run) => run.taskId === task.id);
-    const missing = existsSync(task.projectDir) ? "" : " ⚠ missing directory";
+    const missing = existsSync(task.projectDir) ? "" : yellow(" ⚠ missing directory");
     out(formatTaskLine(task, { latestRun: latest, suffix: missing }));
   }
   const hereCount = tasks.filter((task) => task.projectDir === local).length;
   const otherProjects = new Set(tasks.filter((task) => task.projectDir !== local).map((task) => task.projectDir)).size;
   out("");
   out(
-    `tasks: ${tasks.length} total — ${hereCount} here` +
-      (otherProjects ? `, ${tasks.length - hereCount} in ${otherProjects} other project(s)` : ""),
+    dim(
+      `tasks: ${tasks.length} total — ${hereCount} here` +
+        (otherProjects ? `, ${tasks.length - hereCount} in ${otherProjects} other project(s)` : ""),
+    ),
   );
-  if (hidden > 0) out(`… ${hidden} task(s) hidden by --limit ${limit} — add --limit 0 to see all`);
+  if (hidden > 0) out(dim(`… ${hidden} task(s) hidden by --limit ${limit} — add --limit 0 to see all`));
   out(next("show", tasks[0].id));
   return 0;
 }
@@ -661,6 +674,42 @@ async function commandTestNotify(project: string, flags: Flags, out: Out, err: O
   return failed.length > 0 ? 1 : 0;
 }
 
+/**
+ * Assembles the safe diagnostics into a Markdown report, saves it into the
+ * project store, and hands it to the author's inbox — SMTP through the
+ * project's own email channel, a prefilled mailto: otherwise. Exit 0 even
+ * when SMTP fails, because the mailto fallback is a working path, not an
+ * error; the saved report is the attachment either way.
+ */
+async function commandFeedback(project: string, positional: string[], flags: Flags, out: Out): Promise<number> {
+  const kind = positional[0] as FeedbackKind;
+  if (!FEEDBACK_KINDS.includes(kind)) {
+    throw new CliInputError(
+      "usage",
+      `feedback kind must be bug or idea, got '${positional[0]}' — e.g. ${BIN} feedback bug --message "what happened"`,
+    );
+  }
+  const input: FeedbackInput = {
+    kind,
+    via: "cli",
+    ...(stringFlag(flags, "message") ? { message: stringFlag(flags, "message") } : {}),
+    ...(stringFlag(flags, "contact") ? { contact: stringFlag(flags, "contact") } : {}),
+    ...(positional[1] ? { taskId: positional[1] } : {}),
+    ...(flags.has("include-prompts") ? { includePrompts: true } : {}),
+    ...(flags.has("dry-run") ? { dryRun: true } : {}),
+  };
+  const result = await submitFeedback(project, input);
+  const json: FeedbackResult & { privacy: string } = {
+    ...result,
+    privacy: feedbackResultLines(result, input).at(-1)!,
+  };
+  emit(out, flags, json, [
+    ...feedbackResultLines(result, input),
+    input.dryRun ? next("feedback", kind) : next("list"),
+  ]);
+  return 0;
+}
+
 async function commandPrune(
   project: string,
   explicitProject: boolean,
@@ -925,7 +974,7 @@ type ParsedArgs = {
   flags: Flags;
 };
 
-const BOOLEAN_FLAGS = new Set(["json", "all", "dry-run", "full"]);
+const BOOLEAN_FLAGS = new Set(["json", "all", "dry-run", "full", "include-prompts"]);
 
 /** Every flag any command accepts — a name outside this set is refused at parse time. */
 const ALL_FLAGS = new Set<string>([

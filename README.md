@@ -226,6 +226,8 @@ agents-cron dashboard [--port <n>]                     # foreground, global view
 agents-cron dashboard start|stop|status [--port <n>]   # detached lifecycle
 agents-cron test-notify [--channel <id>]
 agents-cron setup-notify                               # interactive channel wizard (needs a TTY)
+agents-cron feedback bug|idea [taskId] [--message <text>] [--contact <email>] [--dry-run]
+                                                       # report a bug or idea to the author; [--include-prompts] opts in to prompt text
 ```
 
 `--agent` selects the agent adapter (see [Agents](#agents)); it sets the task's
@@ -432,6 +434,31 @@ file permissions), and by default only **failed** runs notify:
   channel (or one, with `--channel <id>`) so the setup can be verified without
   waiting for a real failure.
 
+## Feedback
+
+Bugs and ideas go straight to the author's inbox — `agents-cron feedback
+bug|idea` or `/schedule feedback bug|idea [taskId] <message>`. The command
+assembles a Markdown report first and saves it under `.agents/cron/feedback/`,
+so you can read exactly what would be sent before anything leaves the machine.
+
+Collected automatically: versions and environment facts (node, platform,
+timezone — scheduling bugs live there), the schedule facts of the task you
+mention, its recent run records (ids, statuses, timings), and the first line
+of the last error. Never collected: task prompts, session transcripts,
+notification channel configuration, credentials, or file contents — the
+report's own Privacy section states this. `--include-prompts` is the only way
+a prompt joins the report, and it is opt-in per report.
+
+Delivery reuses your setup: a project with an email notification channel
+sends through its own SMTP account (to the author, not to the channel's
+everyday recipient) with the report attached automatically — no mail client
+involved. Everyone else gets a prefilled mailto: opened in the mail app;
+`mailto:` cannot carry attachments, so the saved report is attached by hand.
+`--dry-run` stops after saving, and a failed SMTP send falls back to the
+mailto path instead of losing the report. A bug report that goes out without
+its prompt names the way back: resend with `--include-prompts` if the issue
+involves what the task was actually doing.
+
 ## Pi commands
 
 ```text
@@ -459,6 +486,8 @@ file permissions), and by default only **failed** runs notify:
 /schedule export [file|--out <file>]   # definitions to agents-cron.tasks.json
 /schedule export --all                 # every project's definitions
 /schedule import <file>              # new tasks here, disabled until enabled
+/schedule feedback bug <message>       # report a bug; diagnostics attached, no prompts
+/schedule feedback idea <message>      # suggest a feature
 /schedule clear
 /schedule help
 ```

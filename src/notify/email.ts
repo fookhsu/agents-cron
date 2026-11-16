@@ -8,6 +8,7 @@ export type MailTransport = {
     to: string;
     subject: string;
     text: string;
+    attachments?: Array<{ filename?: string; path?: string; contentType?: string }>;
   }): Promise<unknown>;
 };
 
@@ -18,7 +19,14 @@ export type TransportFactory = (channel: EmailChannel, password?: string) => Pro
  * optional dependency: only projects that configure an email channel pay for
  * it, and everyone else keeps the zero-SMTP footprint of the core package.
  */
-const nodemailerTransport: TransportFactory = async (channel, password) => {
+/**
+ * Builds the real transport by lazily importing nodemailer, which is an
+ * optional dependency: only projects that configure an email channel pay for
+ * it, and everyone else keeps the zero-SMTP footprint of the core package.
+ * Exported so the feedback sender reuses the exact transport task
+ * notifications use instead of growing a second one.
+ */
+export const nodemailerTransport: TransportFactory = async (channel, password) => {
   let nodemailer: typeof import("nodemailer");
   try {
     nodemailer = await import("nodemailer");
