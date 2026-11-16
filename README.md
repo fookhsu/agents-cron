@@ -1,15 +1,116 @@
 # agents-cron
 
 Cron-driven scheduled prompt tasks for coding agents, with [Pi](https://pi.dev)
-as the built-in agent.
+as the built-in agent. Tell your agent what should run and when — it schedules
+it, cron fires it, a real coding agent executes each run in its own isolated
+session, and a failure finds you on Feishu, email, or any webhook.
+
+![agents-cron dashboard showing four tasks across the pi, claude, and codex adapters, with a run history including one error and one in-flight run](assets/dashboard.png)
+
+## What you can do with it
+
+- **A one-off reminder.** "remind me in 45m to review the release" — runs
+  once, then retires itself; the result reaches you as a desktop notification,
+  in Feishu, or by email.
+- **A recurring watch.** check CI every 30 minutes and analyze any failure —
+  only failures announce themselves, which is the default.
+- **A digest on a schedule.** `@daily`, `30m`, or a raw cron expression; the
+  run's summary lands in your inbox or Feishu group before you wake up.
+- **The runtime you want.** pin each task to Pi, Claude Code, or Codex — the
+  scheduled run borrows that agent's own credentials and project rules.
+- **Every project at once.** install once, and every project's tasks are
+  listed from any directory (current project first), with a read-only
+  dashboard watching the whole machine.
+
+## You drive it by talking to your agent
+
+Open a Pi session and say it in plain words:
+
+> **you:** check CI every 30 minutes, and ping me on feishu if it breaks
+>
+> **pi:** scheduled `ci-watch` — every 30m, failures notify the `feishu`
+> channel, first run in 12 minutes.
+
+From then on the agent manages the whole lifecycle through the `schedule_task`
+tool — create, reconfigure, pause, run now, read a run's result back, open the
+transcript (see [Agent tool](#agent-tool)). If you would rather type, the same
+surface exists as slash commands: `/loop`, `/remind`, `/schedule` (see
+[Pi commands](#pi-commands)). Either way the schedule is stored, and cron
+executes it whether or not Pi is open.
+
+You never need to learn the CLI for this. Its one required caller is cron — a
+single `run-due` line in your crontab (see [Cron setup](#cron-setup)) — and
+everything else about it is shaped for whoever calls it next: an agent, a
+script, or you six months from now (see [What the CLI promises a
+machine](#what-the-cli-promises-a-machine)). Scheduled runs never inject
+output into your interactive session; each one is its own isolated **Task
+Session**, opened deliberately with `/schedule open` when you want it.
+
+## Install
+
+```bash
+# From npm (recommended)
+pi install npm:agents-cron
+
+# Or from a checkout
+pi install .
+```
+
+Requires Node `>=22.19.0`. The package ships TypeScript and runs it as-is — no
+build step, no `dist/`. Pi loads the extension through its own TypeScript
+loader; the CLI registers a small loader hook of its own, because Node refuses
+to strip types for files under `node_modules` (see [Development](#development)).
+
+Previously published as `@fookhsu/pi-scheduler`. The rename is mechanical for
+existing setups: the old package forwards to this one, the `pi-scheduler` bin
+keeps working, and pre-rename `PI_SCHEDULER_*` environment variables are still
+honored. Since 0.7.0 the store lives at `.agents/cron/` (was `.pi/scheduler/`);
+the first run after upgrading copies it over automatically and leaves the old
+copy in place, so crontabs and existing projects keep running untouched.
+
+Since 0.9.0 task definitions live in the global registry at
+`~/.agents/cron/tasks.json` (ADR 0007), bound to their project; run records
+and sessions stay in each project's `.agents/cron/`. The first command that
+touches a project imports its old `tasks.json` into the registry and renames
+it aside — rolling back is renaming the file back and reinstalling 0.8.x.
+Per-project crontab lines keep working as project-scoped passes; replace them
+with the one global line when convenient.
+
+Restart Pi or run `/reload` after installing. Installed with `pi install -l`,
+the package is recorded in the project's `.pi/settings.json` instead of your
+user settings.
+
+## Cron setup
+
+`run-due` is the only execution entry point, and the CLI never manages your
+crontab. One global line drives every project's tasks (ADR 0007: task
+definitions live in the machine-wide registry at `~/.agents/cron/`):
+
+```cron
+*/5 * * * * AGENTS_CRON_PI_BIN=/absolute/path/to/pi "$HOME/.pi/agent/npm/node_modules/.bin/agents-cron" run-due --all >> "$HOME/.agents/cron/cron.log" 2>&1
+```
+
+A project-scoped line (`cd /path/to/project && … run-due`) still works: it
+runs only that project's due tasks, under the same per-project run lock, so
+the two line styles cannot double-execute within one tick. Migrate old
+per-project lines to the single global line when convenient.
+
+Project installs put the binary at `.pi/npm/node_modules/.bin/agents-cron`
+instead. If you linked it onto your `PATH`, plain `agents-cron` works.
+
+Running a task spawns the `pi` executable, and cron starts jobs with a minimal
+`PATH` that usually does not include it. Either set `PATH=` at the top of the
+crontab, or point `AGENTS_CRON_PI_BIN` at `pi` — the command above does the
+latter. A missing `pi` is reported on the run record, not silently skipped.
+Tasks pinned to the Claude Code adapter spawn `claude` instead; the same
+minimal-`PATH` rule applies, with `AGENTS_CRON_CLAUDE_BIN`.
+
+## Design
 
 Pi is the management surface; the `agents-cron` CLI is the execution surface. A
 cron entry invokes `agents-cron run-due`, which drives each due task through an
 **Agent Adapter** — the Pi adapter creates a fully isolated **Task Session** per
-run. The plugin never schedules itself and never injects task output into your
-interactive Pi session.
-
-## Design
+run.
 
 **Time is not ours.** The scheduler never wakes itself up: no timer, no daemon,
 no long-running process. An external scheduler (cron) decides when to look, and
@@ -104,65 +205,6 @@ trigger `manual` and leave its schedule untouched.
 - Agent tool plus slash commands for management, with argument completion: `/schedule ` suggests actions and real task/run ids, `/loop` suggests cron nicknames (`@daily`, …), and every creation command completes its trailing `--to <channel>` / `--notify <level>` / `--thinking <level>` flags from the project's notify config
 - Per-task model configuration: pin `model` and `thinking` at creation or later (`agents-cron set`, `/schedule set`, `schedule_task update`), with the thinking level validated up front
 
-## Install
-
-```bash
-# From npm (recommended)
-pi install npm:agents-cron
-
-# Or from a checkout
-pi install .
-```
-
-Requires Node `>=22.19.0`. The package ships TypeScript and runs it as-is — no
-build step, no `dist/`. Pi loads the extension through its own TypeScript
-loader; the CLI registers a small loader hook of its own, because Node refuses
-to strip types for files under `node_modules` (see [Development](#development)).
-
-Previously published as `@fookhsu/pi-scheduler`. The rename is mechanical for
-existing setups: the old package forwards to this one, the `pi-scheduler` bin
-keeps working, and pre-rename `PI_SCHEDULER_*` environment variables are still
-honored. Since 0.7.0 the store lives at `.agents/cron/` (was `.pi/scheduler/`);
-the first run after upgrading copies it over automatically and leaves the old
-copy in place, so crontabs and existing projects keep running untouched.
-
-Since 0.9.0 task definitions live in the global registry at
-`~/.agents/cron/tasks.json` (ADR 0007), bound to their project; run records
-and sessions stay in each project's `.agents/cron/`. The first command that
-touches a project imports its old `tasks.json` into the registry and renames
-it aside — rolling back is renaming the file back and reinstalling 0.8.x.
-Per-project crontab lines keep working as project-scoped passes; replace them
-with the one global line when convenient.
-
-Restart Pi or run `/reload` after installing. Installed with `pi install -l`,
-the package is recorded in the project's `.pi/settings.json` instead of your
-user settings.
-
-## Cron setup
-
-`run-due` is the only execution entry point, and the CLI never manages your
-crontab. One global line drives every project's tasks (ADR 0007: task
-definitions live in the machine-wide registry at `~/.agents/cron/`):
-
-```cron
-*/5 * * * * AGENTS_CRON_PI_BIN=/absolute/path/to/pi "$HOME/.pi/agent/npm/node_modules/.bin/agents-cron" run-due --all >> "$HOME/.agents/cron/cron.log" 2>&1
-```
-
-A project-scoped line (`cd /path/to/project && … run-due`) still works: it
-runs only that project's due tasks, under the same per-project run lock, so
-the two line styles cannot double-execute within one tick. Migrate old
-per-project lines to the single global line when convenient.
-
-Project installs put the binary at `.pi/npm/node_modules/.bin/agents-cron`
-instead. If you linked it onto your `PATH`, plain `agents-cron` works.
-
-Running a task spawns the `pi` executable, and cron starts jobs with a minimal
-`PATH` that usually does not include it. Either set `PATH=` at the top of the
-crontab, or point `AGENTS_CRON_PI_BIN` at `pi` — the command above does the
-latter. A missing `pi` is reported on the run record, not silently skipped.
-Tasks pinned to the Claude Code adapter spawn `claude` instead; the same
-minimal-`PATH` rule applies, with `AGENTS_CRON_CLAUDE_BIN`.
-
 ## CLI
 
 ```text
@@ -223,8 +265,10 @@ output is a contract rather than a comfort:
   is refused rather than silently ignored.
 - **Errors are one line on stderr** — `error: <code>: <message>` — never on
   stdout, with a code you can branch on (`usage`, `unknown_flag`,
-  `unknown_command`, `bad_value`, `input`, `lock_busy`, `registry_lock_busy`,
-  `no_tty`, …).
+  `unknown_command`, `bad_value`, `not_found`, `input`, `lock_busy`,
+  `registry_lock_busy`, `no_tty`, …). `not_found` is a task id that does not
+  exist or is ambiguous — distinct from `input`, which covers every other way
+  the caller's input can be wrong.
 
 Exit codes: `0` success (including empty results and "another instance holds
 the lock"), `1` a run or notification failed, `2` bad input (flags,
@@ -320,8 +364,6 @@ has to infer truncation from the array length; `/api/overview` returns
 `{generatedAt, total, enabled, failures, tasks}` with each task's `latestRun`;
 and every non-2xx body is `{"error": {"code", "message"}}` — `missing_parameter`,
 `not_found`, `method_not_allowed`, or the scheduler's own `corrupt_registry`.
-
-![agents-cron dashboard showing four tasks across the pi, claude, and codex adapters, with a run history including one error and one in-flight run](assets/dashboard.png)
 
 **Dashboard lifecycle.** `agents-cron dashboard start` (or `/schedule dashboard`)
 runs the server as a detached child owned by the project's registration file,
