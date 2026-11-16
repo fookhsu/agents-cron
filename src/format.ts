@@ -1,3 +1,4 @@
+import { cyan, dim, bold, green, yellow } from "./color.ts";
 import type { RunRecord, ScheduleTask } from "./types.ts";
 
 /**
@@ -61,22 +62,25 @@ export type TaskLineOptions = {
   suffix?: string;
 };
 
-/** One task on one line: id, state, name, schedule, next run, latest outcome. */
+/** One task on one line: id, state, name, schedule, next run, latest outcome.
+ *  Color spans come from color.ts, which is the identity function unless the
+ *  CLI process enabled it for a real terminal — so the plain text here is
+ *  what every surface, agent, and test parses. */
 export function formatTaskLine(task: ScheduleTask, options: TaskLineOptions = {}): string {
-  const state = task.enabled ? "enabled" : "disabled";
+  const state = task.enabled ? green("enabled") : yellow("disabled");
   const latest = options.latestRun;
   const last = latest
     ? `last ${latest.status} at ${stamp(latest.finishedAt ?? latest.startedAt)}`
     : task.lastRunAt
       ? `last ${task.lastStatus ?? "run"} at ${stamp(task.lastRunAt)}`
       : "never run";
-  return `${task.id} [${state}] ${task.name ?? "-"} — ${formatSchedule(task)}${options.suffix ?? ""} — next ${stamp(task.nextRunAt)} — ${last}`;
+  return `${cyan(task.id)} [${state}] ${bold(task.name ?? "-")} — ${dim(formatSchedule(task))}${options.suffix ?? ""} — ${dim(`next ${stamp(task.nextRunAt)}`)} — ${dim(last)}`;
 }
 
 /** Verbose sibling of formatTaskLine: every scheduling fact, then the prompt. */
 export function formatTaskDetail(task: ScheduleTask): string {
   const lines = [
-    `${task.id} [${task.enabled ? "enabled" : "disabled"}] ${task.name ?? "-"}`,
+    `${cyan(task.id)} [${task.enabled ? green("enabled") : yellow("disabled")}] ${bold(task.name ?? "-")}`,
     `project: ${task.projectDir}`,
     `schedule: ${formatSchedule(task)}`,
     `next run: ${stamp(task.nextRunAt)}`,
