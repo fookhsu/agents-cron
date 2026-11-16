@@ -7,6 +7,33 @@ new one as an in-terminal notice; `/schedule changelog` shows this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.18.2] - 2026-11-16
+
+### Added
+
+- Terminal color for the CLI, and nowhere else: when stdout is a real
+  terminal (no `NO_COLOR`, no injected stdout), task lists render colored —
+  cyan ids, bold names, dimmed metadata, green/yellow state, a yellow `⚠
+  missing directory` warning. Piped or captured output stays byte-identical
+  to the plain text agents parse; `src/color.ts` keeps the span helpers as
+  the identity function until the CLI process opts in.
+- `agents-cron feedback bug|idea [taskId]` and `/schedule feedback
+  bug|idea [id] <message>` report a bug or suggest a feature straight to the
+  author's inbox. The command assembles a Markdown report and saves it under
+  `.agents/cron/feedback/` before anything is sent: versions and environment
+  facts (node, platform, timezone), the mentioned task's schedule facts, its
+  recent run records (ids, statuses, timings), and the first line of the last
+  error. Task prompts, session transcripts, notification configuration, and
+  credentials are never collected — the report's Privacy section states this,
+  and only `--include-prompts` opts a prompt in. Delivery reuses the
+  project's email notification channel when one is configured (addressed to
+  the author, not the channel's everyday recipient, with the report attached
+  automatically) and falls back to a prefilled `mailto:` with the saved
+  report as the attachment; a failed SMTP send degrades to the mailto path,
+  `--dry-run` stops after saving, and a bug report sent without its prompt
+  says how to resend with `--include-prompts` if the issue involves the
+  task's actual work.
+
 ## [0.18.1] - 2026-11-16
 
 ### Fixed
